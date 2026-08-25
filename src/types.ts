@@ -29,6 +29,14 @@ export type CredentialKind = (typeof CREDENTIAL_KINDS)[number]
 export const CREDENTIAL_STATUSES = ['unverified', 'valid', 'invalid'] as const
 export type CredentialStatus = (typeof CREDENTIAL_STATUSES)[number]
 
+/** Task-tree lifecycle of an intent (PentestGPT-style PTT states). */
+export const INTENT_STATUSES = ['active', 'done', 'blocked'] as const
+export type IntentStatus = (typeof INTENT_STATUSES)[number]
+
+/** Retest lifecycle of a finding (Strix-style find-and-fix loop). */
+export const FINDING_STATUSES = ['confirmed', 'fixed'] as const
+export type FindingStatus = (typeof FINDING_STATUSES)[number]
+
 export interface GoalRecord {
   readonly sessionId: string
   readonly objective: string
@@ -45,6 +53,8 @@ export interface IntentRecord {
   readonly title: string
   readonly rationale: string
   readonly phase?: Phase | undefined
+  /** Omitted means `active` — records written before v0.3 stay active. */
+  readonly status?: IntentStatus | undefined
   readonly createdAt: number
 }
 
@@ -68,6 +78,8 @@ export interface AssetRecord {
   /** Parent asset id; '' declares a root asset. */
   readonly parentId?: string | undefined
   readonly notes?: string | undefined
+  /** Free-form fingerprint labels (service names, components, versions). */
+  readonly tags?: readonly string[] | undefined
   readonly createdAt: number
 }
 
@@ -84,9 +96,15 @@ export interface FindingRecord {
   readonly remediation?: string | undefined
   /** MITRE ATT&CK technique ids (`T1110`, `T1110.003`). */
   readonly techniqueIds?: readonly string[] | undefined
+  /** OWASP Top 10 category ids (`A01:2021`, `A05:2017`). */
+  readonly owaspIds?: readonly string[] | undefined
   /** CVSS v3.1 base vector; `cvssScore` is derived at write time. */
   readonly cvssVector?: string | undefined
   readonly cvssScore?: number | undefined
+  /** Retest lifecycle; omitted means `confirmed`. */
+  readonly status?: FindingStatus | undefined
+  readonly resolvedAt?: number | undefined
+  readonly retestNotes?: string | undefined
   readonly createdAt: number
 }
 
@@ -108,6 +126,8 @@ export interface CredentialRecord {
   readonly assetId?: string | undefined
   readonly status: CredentialStatus
   readonly notes?: string | undefined
+  /** Evidence ids backing the current status (how it was verified). */
+  readonly evidenceIds?: readonly string[] | undefined
   readonly createdAt: number
 }
 
@@ -134,6 +154,8 @@ export interface EngagementState {
   readonly goal: GoalRecord | null
   readonly counts: EngagementCounts
   readonly openIntents: readonly { id: string; title: string }[]
+  /** Intent task-tree progress (omitted-status records count as active). */
+  readonly progress: { active: number; done: number; blocked: number }
 }
 
 /** Windowed view delivered to the Web tab via the session projection. */
@@ -141,6 +163,8 @@ export interface RedteamViewNode {
   readonly id: string
   readonly kind: 'goal' | 'intent'
   readonly title: string
+  /** Intent lifecycle badge; null on goal nodes and legacy records. */
+  readonly status: IntentStatus | null
 }
 
 export interface RedteamViewAsset {
@@ -148,6 +172,7 @@ export interface RedteamViewAsset {
   readonly type: string
   readonly value: string
   readonly parentId: string | null
+  readonly tags: readonly string[]
 }
 
 /** Finding summary carried in the projection window (no bodies). */
@@ -158,6 +183,7 @@ export interface RedteamViewFinding {
   readonly severity: Severity
   readonly cvssScore: number | null
   readonly techniqueIds: readonly string[]
+  readonly status: FindingStatus | null
 }
 
 /** Credential as seen by the Web tab — masked, never the raw secret. */

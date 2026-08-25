@@ -97,6 +97,13 @@ export function scoreVector(vector: string): number | null {
 /** MITRE ATT&CK technique id (`T1110`) or sub-technique (`T1110.003`). */
 export const ATTACK_TECHNIQUE_RE = /^T\d{4}(\.\d{3})?$/
 
+/** OWASP Top 10 category id for the 2017 or 2021 edition (`A01:2021`). */
+export const OWASP_CATEGORY_RE = /^A\d{2}:(2017|2021)$/
+
 export function validTechniqueIds(ids: readonly string[]): boolean {
   return ids.every((id) => ATTACK_TECHNIQUE_RE.test(id))
+}
+
+export function validOwaspIds(ids: readonly string[]): boolean {
+  return ids.every((id) => OWASP_CATEGORY_RE.test(id))
 }

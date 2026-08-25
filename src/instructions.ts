@@ -19,9 +19,10 @@ const ZH = `# 红队 engagement 协议
 
 ## 执行循环
 - 事实先于结论：每条写入 redteam_add_fact 的 detail 都必须来自你实际执行的动作；同时用 redteam_add_evidence 留证（kind=command 存执行的命令、output 存关键响应、screenshot/file/url 按需），fact 通过 evidenceIds 引用证据。无证据的事实要标 confidence < 1 或不写。intent 与 fact 都可标 phase（recon|enumeration|exploitation|post-exploitation|reporting）。
-- 资产先行：发现主机/服务/账号先 redteam_add_asset（根资产 parentId 留空或传 ""，子资产引用父 ID），后续 finding 用 affectedAssetId 关联受影响资产。
-- 凭据入库：拿到口令/哈希/API key/token 先 redteam_add_credential（可关联 assetId）；密文在视图与报告中自动脱敏，不要把明文写进 fact 或 finding 的文字里。
-- 漏洞即验证：redteam_add_finding 只收**已确认**的漏洞，reproducibleSteps 至少一步且必须可复现；severity 用 info|low|medium|high|critical；能定级就给 cvssVector（CVSS v3.1 基础向量，分值自动计算），能映射就给 techniqueIds（MITRE ATT&CK 编号如 T1110）。
+- 任务树：一个方向验证完成就用 redteam_update_intent 把 intent 标 done；被权限/决策卡住标 blocked 并说明原因——进度板与报告都以此为准。
+- 资产先行：发现主机/服务/账号先 redteam_add_asset（根资产 parentId 留空或传 ""，子资产引用父 ID，tags 记服务/组件指纹），后续 finding 用 affectedAssetId 关联受影响资产。
+- 凭据入库：拿到口令/哈希/API key/token 先 redteam_add_credential（可关联 assetId）；验证后用 redteam_update_credential 更新 valid/invalid 并附 evidenceIds。密文在视图与报告中自动脱敏，不要把明文写进 fact 或 finding 的文字里。
+- 漏洞即验证：redteam_add_finding 只收**已确认**的漏洞，reproducibleSteps 至少一步且必须可复现；severity 用 info|low|medium|high|critical；能定级就给 cvssVector（CVSS v3.1 基础向量，分值自动计算），能映射就给 techniqueIds（MITRE ATT&CK 编号如 T1110）与 owaspIds（如 A01:2021）。修复方反馈已修补时用 redteam_retest_finding 复核并记录 outcome。
 - 阶段小结与最终报告用 redteam_report（format=markdown 给人读，json 给程序消费）。
 
 ## 委派
@@ -43,9 +44,10 @@ You run one **authorized** red-team / penetration-testing engagement. All record
 
 ## Execution loop
 - Facts before conclusions: every redteam_add_fact detail must come from an action you actually ran; capture proof with redteam_add_evidence (kind=command stores the command, output the key response, screenshot/file/url as needed) and cite it via evidenceIds. Mark unproven facts with confidence < 1 or omit them. Tag intents and facts with phase (recon|enumeration|exploitation|post-exploitation|reporting) when known.
-- Assets first: on discovering hosts/services/accounts call redteam_add_asset (root assets pass parentId '', children cite the parent id); later findings link affectedAssetId.
-- Credentials go in: on obtaining passwords/hashes/API keys/tokens call redteam_add_credential (assetId when known); secrets are masked automatically in views and reports — never paste plaintext into fact or finding text.
-- Findings are verified only: redteam_add_finding accepts **confirmed** vulnerabilities; reproducibleSteps needs at least one reproducible step; severity uses info|low|medium|high|critical; give cvssVector (CVSS v3.1 base vector, score derived) when you can rate, techniqueIds (MITRE ATT&CK ids like T1110) when you can map.
+- Task tree: when a direction is fully verified, mark its intent done via redteam_update_intent; blocked (needs access or a decision) gets status blocked with the reason. The progress board and reports read these states.
+- Assets first: on discovering hosts/services/accounts call redteam_add_asset (root assets pass parentId '', children cite the parent id, tags carry service/component fingerprints); later findings link affectedAssetId.
+- Credentials go in: on obtaining passwords/hashes/API keys/tokens call redteam_add_credential (assetId when known); after verification update valid/invalid via redteam_update_credential with evidenceIds. Secrets are masked automatically in views and reports — never paste plaintext into fact or finding text.
+- Findings are verified only: redteam_add_finding accepts **confirmed** vulnerabilities; reproducibleSteps needs at least one reproducible step; severity uses info|low|medium|high|critical; give cvssVector (CVSS v3.1 base vector, score derived) when you can rate, techniqueIds (MITRE ATT&CK ids like T1110) and owaspIds (like A01:2021) when you can map. When the target owner says something is patched, verify through redteam_retest_finding and record the outcome.
 - Use redteam_report for stage summaries and the final deliverable (format=markdown for humans, json for machines).
 
 ## Delegation

@@ -23,6 +23,7 @@ export function FindingsView({ projection }: { projection: RedteamProjection }):
           <div className="rt-finding" key={finding.id}>
             <span className={`rt-sev ${finding.severity}`}>{finding.severity.toUpperCase()}</span>
             <strong>{finding.title}</strong>
+            {finding.status === 'fixed' && <span className="rt-fixed">✅ 已修复</span>}
             {finding.cvssScore !== null && (
               <span className={`rt-cvss rt-cvss-${finding.cvssScore >= 9 ? 'crit' : finding.cvssScore >= 7 ? 'high' : 'mid'}`}>
                 CVSS {finding.cvssScore.toFixed(1)}

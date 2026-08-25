@@ -10,7 +10,7 @@
 import type { ProjectionSessionEvent } from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
 import { ATTACK_TECHNIQUE_RE, scoreVector } from './cvss.js'
-import { CREDENTIAL_KINDS, CREDENTIAL_STATUSES } from './types.js'
+import { CREDENTIAL_KINDS, CREDENTIAL_STATUSES, INTENT_STATUSES } from './types.js'
 import type {
   EdgeRelation,
   EngagementCounts,
@@ -38,12 +38,14 @@ export const redteamProjectionSchema = z.object({
     id: z.string(),
     kind: z.enum(['goal', 'intent']),
     title: z.string(),
+    status: z.enum(['active', 'done', 'blocked']).nullable().default(null),
   })),
   assets: z.array(z.object({
     id: z.string(),
     type: z.string(),
     value: z.string(),
     parentId: z.union([z.string(), z.null()]),
+    tags: z.array(z.string()).default([]),
   })),
   findings: z.array(z.object({
     id: z.string(),
@@ -52,6 +54,7 @@ export const redteamProjectionSchema = z.object({
     severity: z.enum(['info', 'low', 'medium', 'high', 'critical']),
     cvssScore: z.union([z.number(), z.null()]).default(null),
     techniqueIds: z.array(z.string()).default([]),
+    status: z.enum(['confirmed', 'fixed']).nullable().default(null),
   })),
   credentials: z.array(z.object({
     id: z.string(),
@@ -97,6 +100,9 @@ const MUTATING = new Set([
   'redteam_add_asset',
   'redteam_add_finding',
   'redteam_add_credential',
+  'redteam_update_intent',
+  'redteam_retest_finding',
+  'redteam_update_credential',
   'redteam_submit',
 ])
 
@@ -145,7 +151,7 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       state.nodes = state.nodes.filter((n) => n.kind !== 'goal')
       state.edges = state.edges.filter((e) => e.relation === 'parent'
         || !state.nodes.every((n) => n.id !== e.from))
-      state.nodes.push({ id, kind: 'goal', title: String(args?.objective ?? '') })
+      state.nodes.push({ id, kind: 'goal', title: String(args?.objective ?? ''), status: null })
       state.goal = {
         objective: String(args?.objective ?? ''),
         authorization: String(args?.authorization ?? ''),
@@ -155,7 +161,8 @@ function applyMutation(state: FoldState, name: string, args: any): void {
     case 'redteam_add_intent': {
       const id = nextId(state, 'intent')
       const goalNode = state.nodes.find((n) => n.kind === 'goal')
-      state.nodes.push({ id, kind: 'intent', title: String(args?.title ?? '') })
+      const status = INTENT_STATUSES.includes(args?.status) ? args.status : 'active'
+      state.nodes.push({ id, kind: 'intent', title: String(args?.title ?? ''), status })
       if (goalNode !== undefined) pushEdge(state.edges, goalNode.id, id, 'spawns')
       state.nodes = evictOldest([...state.nodes], WINDOW_CAP)
       break
@@ -167,7 +174,13 @@ function applyMutation(state: FoldState, name: string, args: any): void {
     case 'redteam_add_asset': {
       const id = nextId(state, 'asset')
       const parent = typeof args?.parentId === 'string' && args.parentId !== '' ? args.parentId : null
-      state.assets.push({ id, type: String(args?.type ?? ''), value: String(args?.value ?? ''), parentId: parent })
+      state.assets.push({
+        id,
+        type: String(args?.type ?? ''),
+        value: String(args?.value ?? ''),
+        parentId: parent,
+        tags: Array.isArray(args?.tags) ? args.tags.filter((t: unknown) => typeof t === 'string') : [],
+      })
       if (parent !== null && state.assets.some((a) => a.id === parent)) {
         pushEdge(state.edges, parent, id, 'parent')
       }
@@ -196,6 +209,7 @@ function applyMutation(state: FoldState, name: string, args: any): void {
         techniqueIds: Array.isArray(args?.techniqueIds)
           ? args.techniqueIds.filter((t: unknown) => typeof t === 'string' && ATTACK_TECHNIQUE_RE.test(t))
           : [],
+        status: null,
       })
       state.findings = evictOldest([...state.findings], WINDOW_CAP)
       state.edges = evictOldest([...state.edges], WINDOW_CAP * 2)
@@ -213,6 +227,39 @@ function applyMutation(state: FoldState, name: string, args: any): void {
         status: CREDENTIAL_STATUSES.includes(args?.status) ? args.status : 'unverified',
       })
       state.credentials = evictOldest([...state.credentials], WINDOW_CAP)
+      break
+    }
+    case 'redteam_update_intent': {
+      const node = state.nodes.find((n) => n.id === args?.intentId && n.kind === 'intent')
+      if (node !== undefined) {
+        if (typeof args?.title === 'string' && args.title !== '') {
+          state.nodes = state.nodes.map((n) =>
+            n.id === node.id ? { ...n, title: args.title } : n)
+        }
+        if (INTENT_STATUSES.includes(args?.status)) {
+          state.nodes = state.nodes.map((n) =>
+            n.id === node.id ? { ...n, status: args.status } : n)
+        }
+      }
+      break
+    }
+    case 'redteam_retest_finding': {
+      const finding = state.findings.find((f) => f.id === args?.findingId)
+      if (finding !== undefined && args?.outcome === 'fixed') {
+        state.findings = state.findings.map((f) =>
+          f.id === finding.id ? { ...f, status: 'fixed' } : f)
+      } else if (finding !== undefined && args?.outcome === 'still-vulnerable') {
+        state.findings = state.findings.map((f) =>
+          f.id === finding.id ? { ...f, status: null } : f)
+      }
+      break
+    }
+    case 'redteam_update_credential': {
+      const credential = state.credentials.find((c) => c.id === args?.credentialId)
+      if (credential !== undefined && CREDENTIAL_STATUSES.includes(args?.status)) {
+        state.credentials = state.credentials.map((c) =>
+          c.id === credential.id ? { ...c, status: args.status } : c)
+      }
       break
     }
     case 'redteam_submit': {

@@ -8,7 +8,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, PHASES, SEVERITIES } from './types.js'
+import { CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, FINDING_STATUSES, INTENT_STATUSES, PHASES, SEVERITIES } from './types.js'
 import type { EngagementStore, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, SubmitResult } from './store.js'
 import { maskSecret } from './secrets.js'
 
@@ -58,6 +58,7 @@ const assetItems = {
     value: { type: 'string', required: true, description: 'Asset identifier (ip:host, url, name…).' },
     parentId: { type: 'string', description: "Parent asset id; '' or omitted declares a root asset." },
     notes: { type: 'string', description: 'Free-form context.' },
+    tags: { type: 'array', items: { type: 'string' }, description: 'Fingerprint labels (service names, components, versions).' },
   },
 } as const
 
@@ -78,6 +79,10 @@ const findingItems = {
     techniqueIds: {
       type: 'array', items: { type: 'string' },
       description: "MITRE ATT&CK technique ids, e.g. ['T1110','T1110.003'].",
+    },
+    owaspIds: {
+      type: 'array', items: { type: 'string' },
+      description: "OWASP Top 10 categories, e.g. ['A01:2021','A05:2017'].",
     },
     cvssVector: {
       type: 'string',
@@ -211,13 +216,77 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
   const addCredential = defineTool<NewCredential, { credentialId: string }>({
     name: 'redteam_add_credential',
     description:
-      'Register discovered credential material (password, hash, api-key, token, ssh-key). Raw secret is stored but every view and report shows it masked. Cite assetId when the credential belongs to a registered asset.',
+      'Register discovered credential material (password, hash, api-key, token, ssh-key). Raw secret is stored but every view and report shows it masked. Cite assetId when the credential belongs to a registered asset. Verify later with redteam_update_credential.',
     parameters: { ...credentialItems.properties },
     output: {
       schema: {},
       render: (_a, v) => [{ type: 'text', text: `credential ${v.credentialId} stored (secret masked in views/reports)` }],
     },
     execute: (args, exec) => withStore(exec, async (store, sid) => ({ credentialId: await store.addCredential(sid, args) }), args),
+  })
+
+  const updateIntent = defineTool<{
+    intentId: string; status?: (typeof INTENT_STATUSES)[number]; title?: string; rationale?: string
+  }, { intentId: string; status: string }>({
+    name: 'redteam_update_intent',
+    description:
+      'Move an intent through the task tree: status active→done (verified direction) or blocked (needs decision/access), optionally retitle. Keeps the engagement progress board truthful.',
+    parameters: {
+      intentId: { type: 'string', required: true, description: 'Intent id to update.' },
+      status: { type: 'string', enum: [...INTENT_STATUSES], description: 'New lifecycle state.' },
+      title: { type: 'string' },
+      rationale: { type: 'string' },
+    },
+    output: {
+      schema: {},
+      render: (_a, v) => [{ type: 'text', text: `intent ${v.intentId} → ${v.status}` }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      const updated = await store.updateIntent(sid, a.intentId, a)
+      return { intentId: updated.id, status: updated.status ?? 'active' }
+    }, args),
+  })
+
+  const retestFinding = defineTool<{
+    findingId: string; outcome: 'fixed' | 'still-vulnerable'; notes?: string
+  }, { findingId: string; status: string }>({
+    name: 'redteam_retest_finding',
+    description:
+      'Record a retest outcome for one finding after remediation: fixed stamps the resolution time; still-vulnerable returns it to confirmed with the latest retest note.',
+    parameters: {
+      findingId: { type: 'string', required: true },
+      outcome: { type: 'string', required: true, enum: ['fixed', 'still-vulnerable'] },
+      notes: { type: 'string', description: 'Retest observation (what was tried this round).' },
+    },
+    output: {
+      schema: {},
+      render: (_a, v) => [{ type: 'text', text: `finding ${v.findingId} retest → ${v.status}` }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      const updated = await store.retestFinding(sid, a.findingId, a)
+      return { findingId: updated.id, status: updated.status ?? 'confirmed' }
+    }, args),
+  })
+
+  const updateCredential = defineTool<{
+    credentialId: string; status: (typeof CREDENTIAL_STATUSES)[number]; evidenceIds?: string[]
+  }, { credentialId: string; status: string }>({
+    name: 'redteam_update_credential',
+    description:
+      'Verify one credential: valid (worked against its target), invalid, or back to unverified. Cite evidenceIds proving the verification attempt.',
+    parameters: {
+      credentialId: { type: 'string', required: true },
+      status: { type: 'string', required: true, enum: [...CREDENTIAL_STATUSES] },
+      evidenceIds: { type: 'array', items: { type: 'string' }, description: 'Evidence backing the new status.' },
+    },
+    output: {
+      schema: {},
+      render: (_a, v) => [{ type: 'text', text: `credential ${v.credentialId} → ${v.status}` }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      const updated = await store.updateCredential(sid, a.credentialId, a)
+      return { credentialId: updated.id, status: updated.status }
+    }, args),
   })
 
   const submit = defineTool<{
@@ -297,7 +366,8 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
 
   return [
     addGoal, addIntent, addEvidence, addFact, addAsset, addFinding,
-    addCredential, submit, state, graph, report, engagements,
+    addCredential, updateIntent, retestFinding, updateCredential,
+    submit, state, graph, report, engagements,
   ]
 }
 
@@ -361,12 +431,20 @@ async function markdownReport(
     `严重度分布 / Severity: ` +
     SEVERITIES.map((s) => `${s} ${bySeverity.get(s) ?? 0}`).join(' · '),
   )
+  const st = store.state(sid)
+  const fixed = r.findings.filter(([, f]) => f.status === 'fixed').length
+  lines.push(
+    `意图进度 / Intent progress: ${st.progress.done} done · ${st.progress.active} active · ${st.progress.blocked} blocked — 已修复 / fixed findings: ${fixed}/${r.findings.length}`,
+  )
   lines.push('')
 
   lines.push('## 探索链路 / Exploration chain')
   lines.push('')
   for (const [id, intent] of r.intents) {
-    lines.push(`### ${id} — ${intent.title}`)
+    const statusTag = intent.status === undefined || intent.status === 'active'
+      ? ''
+      : ` [${intent.status.toUpperCase()}]`
+    lines.push(`### ${id} — ${intent.title}${statusTag}`)
     if (intent.rationale !== '') lines.push('', intent.rationale)
     const facts = r.facts.filter(([, f]) => f.intentId === id)
     if (facts.length > 0) {
@@ -384,10 +462,10 @@ async function markdownReport(
   lines.push('')
   if (r.assets.length === 0) lines.push('(none)')
   else {
-    lines.push('| id | type | value | parent |')
-    lines.push('|---|---|---|---|')
+    lines.push('| id | type | value | parent | tags |')
+    lines.push('|---|---|---|---|---|')
     for (const [id, a] of r.assets) {
-      lines.push(`| \`${id}\` | ${a.type} | ${a.value} | ${a.parentId ?? ''} |`)
+      lines.push(`| \`${id}\` | ${a.type} | ${a.value} | ${a.parentId ?? ''} | ${(a.tags ?? []).join(', ')} |`)
     }
   }
   lines.push('')
@@ -399,7 +477,8 @@ async function markdownReport(
     const sorted = [...r.findings].sort((a, b) =>
       (SEV_ORDER[a[1].severity] ?? 9) - (SEV_ORDER[b[1].severity] ?? 9))
     for (const [id, f] of sorted) {
-      lines.push(`### [${f.severity.toUpperCase()}] ${f.title} (\`${id}\`)`)
+      const fixedTag = f.status === 'fixed' ? ' ✅ 已修复 / FIXED' : ''
+      lines.push(`### [${f.severity.toUpperCase()}] ${f.title} (\`${id}\`)${fixedTag}`)
       lines.push('', f.description)
       if (f.affectedAssetId !== undefined) lines.push('', `- 受影响资产 / Affected asset: \`${f.affectedAssetId}\``)
       if (f.cvssVector !== undefined && f.cvssScore !== undefined) {
@@ -408,10 +487,19 @@ async function markdownReport(
       if (f.techniqueIds !== undefined && f.techniqueIds.length > 0) {
         lines.push(`- MITRE ATT&CK: ${f.techniqueIds.map((t) => `\`${t}\``).join(', ')}`)
       }
+      if (f.owaspIds !== undefined && f.owaspIds.length > 0) {
+        lines.push(`- OWASP Top 10: ${f.owaspIds.join(', ')}`)
+      }
       lines.push('', '**复现步骤 / Reproduction**')
       f.reproducibleSteps.forEach((step, i) => lines.push(`${i + 1}. ${step}`))
       if (f.evidenceIds.length > 0) lines.push('', `- 证据 / Evidence: ${f.evidenceIds.map((e) => `\`${e}\``).join(', ')}`)
       if (f.remediation !== undefined) lines.push('', `**修复建议 / Remediation**: ${f.remediation}`)
+      if (f.status === 'fixed' && f.resolvedAt !== undefined) {
+        lines.push('', `✅ 复测通过 / Retest passed at: ${new Date(f.resolvedAt).toISOString()}`)
+      }
+      if (f.retestNotes !== undefined && f.retestNotes !== '') {
+        lines.push(`最近复测 / Latest retest note: ${f.retestNotes}`)
+      }
       lines.push('')
     }
   }

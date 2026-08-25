@@ -14,6 +14,7 @@ export function AssetsView({ projection }: { projection: RedteamProjection }): R
           <th>类型</th>
           <th>标识</th>
           <th>父资产</th>
+          <th>标签</th>
         </tr>
       </thead>
       <tbody>
@@ -23,6 +24,9 @@ export function AssetsView({ projection }: { projection: RedteamProjection }): R
             <td>{asset.type}</td>
             <td>{asset.value}</td>
             <td>{asset.parentId === null ? '' : <code>{asset.parentId}</code>}</td>
+            <td>{asset.tags.length > 0
+              ? <span className="rt-tags">{asset.tags.map((t) => <span className="rt-tech" key={t}>{t}</span>)}</span>
+              : '—'}</td>
           </tr>
         ))}
       </tbody>

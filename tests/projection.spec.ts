@@ -133,4 +133,27 @@ describe('redteam projection', () => {
     expect(state.findings[0]).toMatchObject({ cvssScore: 9.8, techniqueIds: ['T1505.003'] })
     expect(state.counts.credentials).toBe(1)
   })
+
+  it('folds lifecycle updates: intent status, finding retest, credential verify', () => {
+    let state = initState()
+    state = fold(state, call(1, 'redteam_add_goal', { objective: 'o', authorization: 'a' }))
+    state = fold(state, call(2, 'redteam_add_intent', { title: 'vpn' }))
+    state = fold(state, result(3, 'c2'))
+    state = fold(state, call(4, 'redteam_update_intent', { intentId: 'intent-1', status: 'done' }))
+    expect(state.nodes.find((n) => n.id === 'intent-1')!.status).toBe('done')
+
+    state = fold(state, call(5, 'redteam_retest_finding', { findingId: 'finding-99', outcome: 'fixed' }))
+    // Unknown id → no-op, no crash.
+    expect(state.findings).toHaveLength(0)
+
+    state = fold(state, call(6, 'redteam_update_credential', { credentialId: 'cred-1', status: 'valid' }))
+    expect(state.credentials).toHaveLength(0)
+
+    // Rollback of an update restores the previous node status.
+    const beforeUpdate = state
+    state = fold(state, call(7, 'redteam_update_intent', { intentId: 'intent-1', status: 'active' }, ))
+    state = fold(state, result(8, 'c7', { name: 'Error', code: '' }))
+    expect(state.nodes.find((n) => n.id === 'intent-1')!.status)
+      .toBe(beforeUpdate.nodes.find((n) => n.id === 'intent-1')!.status)
+  })
 })

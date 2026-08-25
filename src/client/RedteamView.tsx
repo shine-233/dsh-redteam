@@ -52,7 +52,10 @@ const styles = `
 .rt-node rect { fill:var(--dsw-surface,#1b2026); stroke:var(--dsw-border,#39424c); rx:8; }
 .rt-node.goal rect { stroke:var(--dsw-accent,#6aa2ff); stroke-width:2; }
 .rt-node.intent rect { stroke:#7f8fa0; }
+.rt-node.intent rect[data-status="done"] { stroke:#4f7a55; }
+.rt-node.intent rect[data-status="blocked"] { stroke:#c7895b; stroke-dasharray:5 3; }
 .rt-node text { fill:var(--dsw-text,#dbe2ea); font-size:12px; }
+.rt-status { fill:#7fb069; font-size:13px; font-weight:700; }
 .rt-edge { stroke:var(--dsw-border,#46505c); fill:none; stroke-width:1.5; }
 .rt-edge.spawns { stroke-dasharray:none; }
 .rt-edge.yields { stroke:#5b87c7; }
@@ -72,6 +75,8 @@ const styles = `
 .rt-md h1,.rt-md h2,.rt-md h3 { line-height:1.3; }
 .rt-md code { background:var(--dsw-surface,#1b2026); padding:1px 5px; border-radius:4px; }
 .rt-md pre { background:var(--dsw-surface,#1b2026); padding:10px; border-radius:8px; overflow:auto; }
+.rt-progress { display:flex; gap:14px; padding:0 0 8px; font-size:12px; color:var(--dsw-text-secondary,#8b95a1); }
+.rt-progress b { color:#7fb069; margin-left:2px; }
 .rt-hint { color:var(--dsw-text-secondary,#8b95a1); }
 .rt-cvss { margin-left:8px; padding:1px 7px; border-radius:10px; font-size:11px; font-weight:700; }
 .rt-cvss-crit { background:rgba(255,92,92,.18); color:#ff5c5c; }
@@ -80,6 +85,8 @@ const styles = `
 .rt-techs { margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; }
 .rt-tech { background:var(--dsw-surface,#1b2026); border:1px solid var(--dsw-border,#2a3138);
   border-radius:4px; padding:1px 6px; font-size:11px; color:var(--dsw-text-secondary,#8b95a1); }
+.rt-fixed { margin-left:8px; font-size:11px; font-weight:700; color:#7fb069; }
+.rt-tags { display:flex; gap:4px; flex-wrap:wrap; }
 .rt-cred-status-valid { color:#7fb069; }
 .rt-cred-status-invalid { color:#ff5c5c; }
 .rt-cred-status-unverified { color:var(--dsw-text-secondary,#8b95a1); }
@@ -115,6 +122,23 @@ export function RedteamView(props: RedteamViewProps): React.ReactNode {
         <span>凭据<b>{counts.credentials}</b></span>
         <span>证据<b>{counts.evidence}</b></span>
       </div>
+      {(projection.nodes.some((n) => n.kind === 'intent' && n.status !== 'active') ||
+        projection.findings.some((f) => f.status === 'fixed')) && (
+        <div className="rt-progress">
+          {(() => {
+            const done = projection.nodes.filter((n) => n.kind === 'intent' && n.status === 'done').length
+            const blocked = projection.nodes.filter((n) => n.kind === 'intent' && n.status === 'blocked').length
+            const total = projection.nodes.filter((n) => n.kind === 'intent').length
+            const fixed = projection.findings.filter((f) => f.status === 'fixed').length
+            return (
+              <>
+                <span>任务树 / Task tree: <b>{done}/{total}</b> done{blocked > 0 ? <> · <b>{blocked}</b> blocked</> : null}</span>
+                <span>已修复 / Fixed: <b>{fixed}/{projection.findings.length}</b></span>
+              </>
+            )
+          })()}
+        </div>
+      )}
       <div className="rt-tabs" role="tablist">
         {TABS.map((t) => (
           <button

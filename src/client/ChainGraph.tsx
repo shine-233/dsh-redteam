@@ -15,6 +15,7 @@ interface Placed {
   id: string
   kind: 'goal' | 'intent'
   title: string
+  status?: 'active' | 'done' | 'blocked' | null
   x: number
   y: number
 }
@@ -85,14 +86,20 @@ export function ChainGraph({ projection }: { projection: RedteamProjection }): R
         ))}
         {placed.map((n) => (
           <g key={n.id} className={`rt-node ${n.kind}`}>
-            <rect x={n.x} y={n.y} width={NODE_W} height={NODE_H} rx={8} />
+            <rect x={n.x} y={n.y} width={NODE_W} height={NODE_H} rx={8}
+              data-status={n.kind === 'intent' ? (n.status ?? 'active') : undefined} />
             <text x={n.x + 10} y={n.y + 17}>
-              <tspan fontWeight="600">{truncate(n.title, 18)}</tspan>
+              <tspan fontWeight="600">{truncate(n.title, n.status === 'done' ? 15 : 18)}</tspan>
             </text>
+            {n.kind === 'intent' && n.status !== null && n.status !== 'active' && (
+              <text className="rt-status" x={n.x + NODE_W - 8} y={n.y + 17} textAnchor="end">
+                {n.status === 'done' ? '✓' : '⏸'}
+              </text>
+            )}
             <text x={n.x + 10} y={n.y + 30} fill="#8b95a1">
               {n.id}
             </text>
-            <title>{`${n.id}\n${n.title}`}</title>
+            <title>{`${n.id}\n${n.title}${n.status && n.status !== 'active' ? `\n[${n.status}]` : ''}`}</title>
           </g>
         ))}
       </svg>

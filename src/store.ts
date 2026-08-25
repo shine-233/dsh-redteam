@@ -37,7 +37,7 @@ import {
   goalSchema,
   intentSchema,
 } from './spec.js'
-import { ATTACK_TECHNIQUE_RE, scoreVector, validTechniqueIds } from './cvss.js'
+import { ATTACK_TECHNIQUE_RE, OWASP_CATEGORY_RE, scoreVector, validOwaspIds, validTechniqueIds } from './cvss.js'
 import { maskSecret } from './secrets.js'
 
 /** Machine-tagged store failure surfaced verbatim to the calling tool. */
@@ -74,6 +74,7 @@ export interface NewAsset {
   /** Parent asset id, or '' / undefined for a root asset. */
   parentId?: string
   notes?: string
+  tags?: string[]
 }
 
 export interface NewFinding {
@@ -85,6 +86,7 @@ export interface NewFinding {
   evidenceIds?: string[]
   remediation?: string
   techniqueIds?: string[]
+  owaspIds?: string[]
   /** CVSS v3.1 base vector; score derived automatically when it parses. */
   cvssVector?: string
 }
@@ -97,6 +99,7 @@ export interface NewCredential {
   assetId?: string
   status?: import('./types.js').CredentialStatus
   notes?: string
+  evidenceIds?: string[]
 }
 
 export interface SubmitBatch {
@@ -294,6 +297,7 @@ export class EngagementStore {
       value: input.value,
       ...(input.parentId !== undefined && input.parentId !== '' ? { parentId: input.parentId } : {}),
       ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      ...(input.tags !== undefined && input.tags.length > 0 ? { tags: [...input.tags] } : {}),
       createdAt: Date.now(),
     })
     await this.put('assets', id, parsed as AssetRecord)
@@ -311,6 +315,12 @@ export class EngagementStore {
       throw new StoreError(
         'invalid-record',
         `techniqueIds must be MITRE ATT&CK ids like 'T1110' or 'T1110.003': ${input.techniqueIds.filter((id) => !ATTACK_TECHNIQUE_RE.test(id)).join(', ')}`,
+      )
+    }
+    if (input.owaspIds !== undefined && !validOwaspIds(input.owaspIds)) {
+      throw new StoreError(
+        'invalid-record',
+        `owaspIds must be OWASP Top 10 categories like 'A01:2021' or 'A05:2017': ${input.owaspIds.filter((id) => !OWASP_CATEGORY_RE.test(id)).join(', ')}`,
       )
     }
     const score = input.cvssVector !== undefined ? scoreVector(input.cvssVector) : null
@@ -356,10 +366,80 @@ export class EngagementStore {
       ...(input.assetId !== undefined && input.assetId !== '' ? { assetId: input.assetId } : {}),
       status: input.status ?? 'unverified',
       ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      ...(input.evidenceIds !== undefined ? { evidenceIds: [...input.evidenceIds] } : {}),
       createdAt: Date.now(),
     })
     await this.put('credentials', id, parsed as CredentialRecord)
     return id
+  }
+
+  /**
+   * Task-tree transition on an intent (status/title/rationale). Only the
+   * provided fields change; `closedAt`-style append-only history is not
+   * needed because the session log already records every call.
+   */
+  async updateIntent(sessionId: string, intentId: string, patch: {
+    status?: import('./types.js').IntentStatus
+    title?: string
+    rationale?: string
+  }): Promise<IntentRecord & { id: string }> {
+    const existing = this.get<IntentRecord>('intents', sessionId, intentId)
+    if (existing === undefined) {
+      throw new StoreError('missing-ref', `intent '${intentId}' does not exist in this session`)
+    }
+    const updated: IntentRecord = {
+      ...existing,
+      ...(patch.status !== undefined ? { status: patch.status } : {}),
+      ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.rationale !== undefined ? { rationale: patch.rationale } : {}),
+    }
+    await this.put('intents', intentId, updated)
+    return { ...updated, id: intentId }
+  }
+
+  /**
+   * Retest outcome for one finding: `fixed` stamps the resolution,
+   * `still-vulnerable` keeps it confirmed with the latest retest note.
+   */
+  async retestFinding(sessionId: string, findingId: string, patch: {
+    outcome: 'fixed' | 'still-vulnerable'
+    notes?: string
+    evidenceIds?: string[]
+  }): Promise<FindingRecord & { id: string }> {
+    this.requireActiveGoal(sessionId)
+    const existing = this.get<FindingRecord>('findings', sessionId, findingId)
+    if (existing === undefined) {
+      throw new StoreError('missing-ref', `finding '${findingId}' does not exist in this session`)
+    }
+    let updated: FindingRecord = { ...existing }
+    if (patch.outcome === 'fixed') {
+      updated = { ...updated, status: 'fixed', resolvedAt: Date.now() }
+    } else {
+      // Still vulnerable: back to confirmed (clears a stale fixed stamp).
+      updated = { ...updated, status: 'confirmed', resolvedAt: undefined }
+    }
+    if (patch.notes !== undefined) updated = { ...updated, retestNotes: patch.notes }
+    await this.put('findings', findingId, updated)
+    return { ...updated, id: findingId }
+  }
+
+  /** Verification transition on a credential (`valid` / `invalid` / reset). */
+  async updateCredential(sessionId: string, credentialId: string, patch: {
+    status: import('./types.js').CredentialStatus
+    evidenceIds?: string[]
+  }): Promise<CredentialRecord & { id: string }> {
+    const existing = this.get<CredentialRecord>('credentials', sessionId, credentialId)
+    if (existing === undefined) {
+      throw new StoreError('missing-ref', `credential '${credentialId}' does not exist in this session`)
+    }
+    this.requireEvidence(sessionId, patch.evidenceIds ?? [])
+    const updated: CredentialRecord = {
+      ...existing,
+      status: patch.status,
+      ...(patch.evidenceIds !== undefined ? { evidenceIds: [...patch.evidenceIds] } : {}),
+    }
+    await this.put('credentials', credentialId, updated)
+    return { ...updated, id: credentialId }
   }
 
   /**
@@ -449,15 +529,22 @@ export class EngagementStore {
     goal: GoalRecord | null
     counts: EngagementCounts
     openIntents: { id: string; title: string }[]
+    progress: { active: number; done: number; blocked: number }
   } {
     const goal = this.activeGoal(sessionId)
     const win = this.windowOf(sessionId)
-    const openIntents = (win === null ? [] : this.rowsInWindow('intents', sessionId, win) as [string, IntentRecord][])
-      .map(([id, record]) => ({ id, title: record.title }))
+    const intents = win === null
+      ? [] as [string, IntentRecord][]
+      : this.rowsInWindow('intents', sessionId, win) as [string, IntentRecord][]
+    const progress = { active: 0, done: 0, blocked: 0 }
+    for (const [, intent] of intents) progress[intent.status ?? 'active'] += 1
     return {
       goal: goal === undefined ? null : (({ id: _id, ...rest }) => rest)(goal),
       counts: this.counts(sessionId),
-      openIntents,
+      openIntents: intents
+        .filter(([, record]) => (record.status ?? 'active') === 'active')
+        .map(([id, record]) => ({ id, title: record.title })),
+      progress,
     }
   }
 
@@ -473,13 +560,13 @@ export class EngagementStore {
       return { nodes: [], assets: [], edges: [], counts: { ...EMPTY_COUNTS } }
     }
     const goal = this.activeGoal(sessionId)!
-    const nodes: RedteamViewNode[] = [{ id: goal.id, kind: 'goal', title: goal.objective }]
+    const nodes: RedteamViewNode[] = [{ id: goal.id, kind: 'goal', title: goal.objective, status: null }]
     const edges: GraphEdge[] = []
 
     const intents = this.rowsInWindow('intents', sessionId, win) as [string, IntentRecord][]
     const intentIds = new Set(intents.map(([id]) => id))
     for (const [id, intent] of intents) {
-      nodes.push({ id, kind: 'intent', title: intent.title })
+      nodes.push({ id, kind: 'intent', title: intent.title, status: intent.status ?? 'active' })
       edges.push({ from: intent.goalId, to: id, relation: 'spawns' })
     }
     for (const [id, fact] of this.rowsInWindow('facts', sessionId, win) as [string, FactRecord][]) {
@@ -501,7 +588,7 @@ export class EngagementStore {
 
     return {
       nodes,
-      assets: assets.map(([id, a]) => ({ id, type: a.type, value: a.value, parentId: a.parentId ?? null })),
+      assets: assets.map(([id, a]) => ({ id, type: a.type, value: a.value, parentId: a.parentId ?? null, tags: [...(a.tags ?? [])] })),
       edges,
       counts: this.counts(sessionId),
     }
@@ -522,6 +609,7 @@ export class EngagementStore {
           severity: f.severity,
           cvssScore: f.cvssScore ?? null,
           techniqueIds: [...(f.techniqueIds ?? [])],
+          status: f.status === 'fixed' ? 'fixed' as const : null,
         }))
     const credentials = this.maskedCredentials(sessionId).map((c) => ({
       id: c.id,

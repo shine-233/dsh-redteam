@@ -149,4 +149,93 @@ describe('EngagementStore', () => {
     expect(records.goal!.authorization).toBe('ROE #2026-041')
     expect(records.findings).toHaveLength(2)
   })
+
+  it('moves intents through the task tree and reports progress', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const i1 = await store.addIntent(SID, { title: 'perimeter' })
+    const i2 = await store.addIntent(SID, { title: 'vpn' })
+    await store.updateIntent(SID, i1, { status: 'done' })
+    await store.updateIntent(SID, i2, { status: 'blocked' })
+
+    const state = store.state(SID)
+    expect(state.progress).toEqual({ active: 0, done: 1, blocked: 1 })
+    // Blocked/finished intents leave the "open" worklist.
+    expect(state.openIntents).toEqual([])
+
+    // Unknown intent id is rejected.
+    await expect(store.updateIntent(SID, 'intent-99', { status: 'done' }))
+      .rejects.toMatchObject({ code: 'missing-ref' })
+
+    // Graph nodes carry the lifecycle badge.
+    expect(store.graph(SID).nodes.find((n) => n.id === i1)!.status).toBe('done')
+  })
+
+  it('retests findings through the fix loop (fixed → still-vulnerable)', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const intent = await store.addIntent(SID, { title: 'web' })
+    const finding = await store.addFinding(SID, intent, {
+      title: 'sqli',
+      severity: 'critical',
+      description: '',
+      reproducibleSteps: ["' OR 1=1"],
+    })
+
+    await store.retestFinding(SID, finding, { outcome: 'fixed', notes: 'patched build 42' })
+    let record = store.engagementRecords(SID).findings[0]![1]
+    expect(record.status).toBe('fixed')
+    expect(record.resolvedAt).toBeDefined()
+    expect(record.retestNotes).toBe('patched build 42')
+
+    await store.retestFinding(SID, finding, { outcome: 'still-vulnerable', notes: 'bypass via encode()' })
+    record = store.engagementRecords(SID).findings[0]![1]
+    expect(record.status).toBe('confirmed')
+    expect(record.resolvedAt).toBeUndefined()
+
+    await expect(store.retestFinding(SID, 'finding-99', { outcome: 'fixed' }))
+      .rejects.toMatchObject({ code: 'missing-ref' })
+  })
+
+  it('verifies credentials with evidence and validates owasp/tags inputs', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const intent = await store.addIntent(SID, { title: 'enum' })
+    const asset = await store.addAsset(SID, {
+      type: 'host', value: '10.0.0.7', tags: ['ssh', 'openssh-8.4'],
+    })
+    const cred = await store.addCredential(SID, {
+      kind: 'password', secret: 'hunter2hunter2', username: 'root', assetId: asset,
+    })
+
+    await store.addEvidence(SID, { kind: 'output', content: 'uid=0(root)' })
+    const updated = await store.updateCredential(SID, cred, {
+      status: 'valid', evidenceIds: ['ev-1'],
+    })
+    expect(updated.status).toBe('valid')
+    expect(store.engagementRecords(SID).credentials[0]![1].evidenceIds).toEqual(['ev-1'])
+
+    await expect(
+      store.updateCredential(SID, cred, { status: 'invalid', evidenceIds: ['ev-nope'] }),
+    ).rejects.toMatchObject({ code: 'missing-ref' })
+
+    // OWASP ids validate at write time.
+    const finding = await store.addFinding(SID, intent, {
+      title: 'broken access control',
+      severity: 'high',
+      description: '',
+      reproducibleSteps: ['step'],
+      owaspIds: ['A01:2021'],
+    })
+    expect(finding).toBe('finding-1')
+    await expect(
+      store.addFinding(SID, intent, {
+        title: 'x', severity: 'low', description: '', reproducibleSteps: ['s'],
+        owaspIds: ['A1'],
+      }),
+    ).rejects.toMatchObject({ code: 'invalid-record' })
+
+    // Tags flow through the graph view.
+    expect(store.graph(SID).assets[0]!.tags).toEqual(['ssh', 'openssh-8.4'])
+  })
 })

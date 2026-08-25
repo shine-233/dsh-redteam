@@ -27,10 +27,12 @@ import {
   CREDENTIAL_KINDS,
   CREDENTIAL_STATUSES,
   EVIDENCE_KINDS,
+  FINDING_STATUSES,
+  INTENT_STATUSES,
   PHASES,
   SEVERITIES,
 } from './types.js'
-import { ATTACK_TECHNIQUE_RE } from './cvss.js'
+import { ATTACK_TECHNIQUE_RE, OWASP_CATEGORY_RE } from './cvss.js'
 
 export const REDTEAM_DOMAIN_VERSION = 1
 
@@ -51,6 +53,7 @@ export const intentSchema = z.object({
   title: z.string().min(1),
   rationale: z.string(),
   phase: z.enum(PHASES).optional(),
+  status: z.enum(INTENT_STATUSES).optional(),
   createdAt: isoTime,
 })
 
@@ -72,6 +75,7 @@ export const assetSchema = z.object({
   value: z.string().min(1),
   parentId: z.string().optional(),
   notes: z.string().optional(),
+  tags: z.array(z.string().min(1)).optional(),
   createdAt: isoTime,
 })
 
@@ -86,8 +90,12 @@ export const findingSchema = z.object({
   evidenceIds: z.array(z.string()),
   remediation: z.string().optional(),
   techniqueIds: z.array(z.string().regex(ATTACK_TECHNIQUE_RE)).optional(),
+  owaspIds: z.array(z.string().regex(OWASP_CATEGORY_RE)).optional(),
   cvssVector: z.string().optional(),
   cvssScore: z.number().min(0).max(10).optional(),
+  status: z.enum(FINDING_STATUSES).optional(),
+  resolvedAt: isoTime.optional(),
+  retestNotes: z.string().optional(),
   createdAt: isoTime,
 })
 
@@ -108,6 +116,7 @@ export const credentialSchema = z.object({
   assetId: z.string().optional(),
   status: z.enum(CREDENTIAL_STATUSES),
   notes: z.string().optional(),
+  evidenceIds: z.array(z.string()).optional(),
   createdAt: isoTime,
 })
 
