@@ -6,7 +6,8 @@
 
 import type { RedteamProjection } from '../types.js'
 
-export function ReportView({ projection }: { projection: RedteamProjection & { sessionId?: string } }): React.ReactNode {
+export function ReportView({ projection, sessionId }: { projection: RedteamProjection; sessionId?: string }): React.ReactNode {
+  void sessionId
   const c = projection.counts
   return (
     <div className="rt-md">
@@ -20,7 +21,9 @@ export function ReportView({ projection }: { projection: RedteamProjection & { s
       </p>
       <pre>{`导出红队测试报告（redteam_report，format=markdown，includeEvidence=true）`}</pre>
       <p>
-        程序化消费使用 <code>format=json</code>。历史 engagement 用 <code>redteam_engagements</code> 查看。
+        机器可读格式：<code>format=json</code>（全量）、<code>format=sarif</code>（GitHub/GitLab code scanning）、
+        <code>format=navlayer</code>（ATT&amp;CK Navigator 覆盖层）、<code>format=stix</code>（STIX 2.1 IOC/漏洞 bundle）。
+        历史 engagement 用 <code>redteam_engagements</code> 查看。
       </p>
       <p className="rt-hint">
         说明：Web 标签页读取会话投影（最近 200 条窗口），完整记录以存储层为准。

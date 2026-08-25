@@ -255,4 +255,91 @@ describe('redteam tools', () => {
     // Authorization audit fact rides along in rule properties.
     expect(run.tool.driver.rules[0].properties.authorization).toBe('ROE-9')
   })
+
+  it('exports an ATT&CK Navigator layer scoring proven vs attempted', async () => {
+    const { registry } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'nav layer test', authorization: 'ROE-10' }, exec)
+    await registry.call('redteam_add_intent', { title: 'bruteforce', techniqueIds: ['T1110.003'] }, exec)
+    await registry.call('redteam_add_intent', { title: 'scan', techniqueIds: ['T1046'] }, exec)
+    await registry.call('redteam_add_finding', {
+      intentId: 'intent-1', title: 'weak ssh', severity: 'high', description: '',
+      reproducibleSteps: ['hydra'], techniqueIds: ['T1110.003'],
+    }, exec)
+
+    const result = await registry.call('redteam_report', { format: 'navlayer' }, exec)
+    expect(result.ok).toBe(true)
+    const layer = JSON.parse((result.value as { body: string }).body)
+    expect(layer.versions.layer).toBe('4.5')
+    expect(layer.domain).toBe('enterprise-attack')
+    expect(layer.metadata).toContainEqual({ name: 'authorization', value: 'ROE-10' })
+    const byId = new Map<string, { score: number; color: string; comment: string }>(
+      layer.techniques.map((t: { techniqueID: string; score: number; color: string; comment: string }) => [t.techniqueID, t]),
+    )
+    expect(byId.get('T1110.003')).toMatchObject({ score: 100, color: '#7fb069' })
+    expect(byId.get('T1046')!.score).toBe(50)
+    expect(byId.get('T1110.003')!.comment).toContain('proven by weak ssh')
+  })
+
+  it('exports a STIX 2.1 bundle with vulnerabilities and IOC indicators', async () => {
+    const { registry } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'stix test', authorization: 'ROE-11' }, exec)
+    await registry.call('redteam_add_intent', { title: 'i' }, exec)
+    await registry.call('redteam_add_finding', {
+      intentId: 'intent-1', title: 'sqli', severity: 'critical', description: 'union sqli',
+      reproducibleSteps: ["' UNION SELECT"], cveIds: ['CVE-2024-12345'],
+    }, exec)
+    await registry.call('redteam_add_ioc', { type: 'ip', value: '203.0.113.9' }, exec)
+    await registry.call('redteam_add_ioc', { type: 'domain', value: 'evil.example.net' }, exec)
+    await registry.call('redteam_add_ioc', { type: 'hash', value: 'a'.repeat(64) }, exec)
+    await registry.call('redteam_add_ioc', { type: 'user-agent', value: 'sqlmap/1.8' }, exec)
+
+    const result = await registry.call('redteam_report', { format: 'stix' }, exec)
+    expect(result.ok).toBe(true)
+    const bundle = JSON.parse((result.value as { body: string }).body)
+    expect(bundle.type).toBe('bundle')
+    const types = new Map<string, any[]>()
+    for (const obj of bundle.objects) types.set(obj.type, [...(types.get(obj.type) ?? []), obj])
+    expect(types.get('identity')).toHaveLength(1)
+    const vulns = types.get('vulnerability')!
+    expect(vulns).toHaveLength(1)
+    expect(vulns[0].labels).toContain('severity:critical')
+    expect(vulns[0].external_references).toEqual([{ source_name: 'cve', external_id: 'CVE-2024-12345' }])
+    const indicators = types.get('indicator')!
+    // ip/domain/hash map to standard STIX objects; user-agent has none and is skipped.
+    expect(indicators).toHaveLength(3)
+    expect(indicators.map((i: { pattern: string }) => i.pattern)).toEqual([
+      "[ipv4-addr:value = '203.0.113.9']",
+      "[domain-name:value = 'evil.example.net']",
+      `[file:hashes.'SHA-256' = '${'a'.repeat(64)}']`,
+    ])
+  })
+
+  it('flags credential reuse across targets and suggests next steps', async () => {
+    const { registry, store } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'reuse', authorization: 'ROE-12' }, exec)
+    await registry.call('redteam_add_asset', { type: 'host', value: 'a.corp' }, exec)
+    await registry.call('redteam_add_asset', { type: 'host', value: 'b.corp' }, exec)
+    await registry.call('redteam_add_asset', { type: 'host', value: 'c.corp' }, exec)
+    await registry.call('redteam_add_credential', { kind: 'password', secret: 'P@ssw0rdX', target: 'a.corp' }, exec)
+    await registry.call('redteam_add_credential', { kind: 'password', secret: 'P@ssw0rdX', target: 'b.corp' }, exec)
+    await registry.call('redteam_add_credential', { kind: 'api-key', secret: 'unique-key-material', target: 'c.corp' }, exec)
+
+    const state = store.state('session-1')
+    expect(state.credentialReuse).toEqual([
+      { mask: expect.any(String), targets: ['a.corp', 'b.corp'], kinds: ['password'] },
+    ])
+    expect(state.nextSteps.some((s) => s.includes('credential(s) unverified'))).toBe(true)
+    expect(state.nextSteps.some((s) => s.includes('coverage gap'))).toBe(true)
+    expect(state.nextSteps.some((s) => s.includes('reused across'))).toBe(true)
+
+    const md = await registry.call('redteam_report', {}, exec)
+    expect(md.ok).toBe(true)
+    const body = (md.value as { body: string }).body
+    expect(body).toContain('执行摘要 / Executive summary')
+    expect(body).toContain('凭据复用 / Credential reuse')
+    expect(body).not.toContain('P@ssw0rdX')
+  })
 })

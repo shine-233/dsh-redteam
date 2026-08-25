@@ -8,6 +8,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
+import { randomUUID } from 'node:crypto'
 import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SEVERITIES } from './types.js'
 import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, NewHint, NewIoc, NewObjective, NewSample, SubmitResult } from './store.js'
 import { maskSecret } from './secrets.js'
@@ -504,7 +505,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
 
   const state = defineTool<Record<string, never>, StateView>({
     name: 'redteam_state',
-    description: 'Current engagement summary: active goal, record counts, open intents.',
+    description: 'Current engagement summary: active goal, record counts, open intents, coverage/technique gaps, credential reuse, and suggested next steps.',
     parameters: {},
     output: {
       schema: {},
@@ -514,6 +515,8 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
           counts: v.counts,
           progress: v.progress,
           coverage: { tested: v.coverage.tested.length, untested: v.coverage.untested },
+          credentialReuse: v.credentialReuse,
+          nextSteps: v.nextSteps,
         }),
       }],
     },
@@ -530,13 +533,13 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
   })
 
   const report = defineTool<{
-    format?: 'markdown' | 'json' | 'sarif'; includeEvidence?: boolean
+    format?: 'markdown' | 'json' | 'sarif' | 'navlayer' | 'stix'; includeEvidence?: boolean
   }, { format: string; body: string }>({
     name: 'redteam_report',
     description:
-      'Render the engagement report for the current engagement (open or just closed). format=markdown (default) for humans, json for machines, sarif for GitHub/GitLab code-scanning ingestion; includeEvidence embeds raw evidence content in markdown.',
+      'Render the engagement report for the current engagement (open or just closed). format=markdown (default) for humans, json for machines, sarif for GitHub/GitLab code-scanning ingestion, navlayer for MITRE ATT&CK Navigator layers, stix for STIX 2.1 IOC/vuln bundles; includeEvidence embeds raw evidence content in markdown.',
     parameters: {
-      format: { type: 'string', enum: ['markdown', 'json', 'sarif'], description: 'Default markdown.' },
+      format: { type: 'string', enum: ['markdown', 'json', 'sarif', 'navlayer', 'stix'], description: 'Default markdown.' },
       includeEvidence: { type: 'boolean', description: 'Markdown only: append raw evidence appendix.' },
     },
     output: {
@@ -549,7 +552,11 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
         ? JSON.stringify(await jsonReport(store, sid), null, 2)
         : format === 'sarif'
           ? await sarifReport(store, sid)
-          : await markdownReport(store, sid, a.includeEvidence ?? false)
+          : format === 'navlayer'
+            ? await navLayerReport(store, sid)
+            : format === 'stix'
+              ? await stixReport(store, sid)
+              : await markdownReport(store, sid, a.includeEvidence ?? false)
       if (format === 'markdown') exec.deferContext(reportDeferredNotice())
       return { format, body }
     }, args),
@@ -668,6 +675,153 @@ async function sarifReport(store: import('./store.js').EngagementStore, sid: str
   return JSON.stringify(sarif, null, 2)
 }
 
+/**
+ * ATT&CK Navigator layer (format v4.5): proven techniques score 100 (green),
+ * attempted-only score 50 (amber). Importable via Navigator "Open Existing
+ * Layer" or the attack-scripts tooling.
+ */
+async function navLayerReport(store: import('./store.js').EngagementStore, sid: string): Promise<string> {
+  const st = store.state(sid)
+  const r = store.engagementRecords(sid)
+  const proven = new Set(st.techniques.proven)
+  const comments = new Map<string, string[]>()
+  for (const [, intent] of r.intents) {
+    for (const t of intent.techniqueIds ?? []) {
+      const list = comments.get(t) ?? []
+      list.push(`${intent.title} (${intent.status ?? 'active'})`)
+      comments.set(t, list)
+    }
+  }
+  for (const [, f] of r.findings) {
+    for (const t of f.techniqueIds ?? []) {
+      const list = comments.get(t) ?? []
+      list.push(`proven by ${f.title}`)
+      comments.set(t, list)
+    }
+  }
+  const seen = new Set<string>()
+  const techniques: { techniqueID: string; score: number; color: string; comment: string }[] = []
+  for (const t of st.techniques.attempted) {
+    if (seen.has(t)) continue
+    seen.add(t)
+    techniques.push({
+      techniqueID: t,
+      score: proven.has(t) ? 100 : 50,
+      color: proven.has(t) ? '#7fb069' : '#e0c04e',
+      comment: (comments.get(t) ?? []).join('; ').slice(0, 400),
+    })
+  }
+  const goal = r.goal
+  const layer = {
+    name: goal !== null ? goal.objective.slice(0, 120) : 'dsh-redteam coverage',
+    versions: { attack: '18', navigator: '5.2.0', layer: '4.5' },
+    domain: 'enterprise-attack',
+    description: goal !== null ? `Authorization: ${goal.authorization}` : 'Generated by dsh-redteam',
+    techniques,
+    gradient: { colors: ['#e0c04e', '#7fb069'], minValue: 0, maxValue: 100 },
+    legendItems: [
+      { label: '证实 / proven', color: '#7fb069' },
+      { label: '尝试 / attempted', color: '#e0c04e' },
+    ],
+    metadata: [
+      { name: 'generator', value: 'dsh-redteam' },
+      ...(goal !== null ? [{ name: 'authorization', value: goal.authorization }] : []),
+    ],
+  }
+  return JSON.stringify(layer, null, 2)
+}
+
+/** STIX pattern for a stored IOC; null when the type has no standard object. */
+function stixPattern(type: string, value: string): string | null {
+  switch (type) {
+    case 'ip':
+      return value.includes(':') ? `[ipv6-addr:value = '${value}']` : `[ipv4-addr:value = '${value}']`
+    case 'domain':
+      return `[domain-name:value = '${value}']`
+    case 'url':
+      return `[url:value = '${value}']`
+    case 'hash': {
+      const algo = value.length === 64 ? 'SHA-256' : value.length === 40 ? 'SHA-1' : value.length === 32 ? 'MD5' : null
+      return algo === null ? null : `[file:hashes.'${algo}' = '${value}']`
+    }
+    case 'email':
+      return `[email-addr:value = '${value}']`
+    case 'mutex':
+      return `[mutex:name = '${value}']`
+    case 'registry':
+      return `[windows-registry-key:key = '${value}']`
+    default:
+      return null
+  }
+}
+
+function stixId(prefix: string): string {
+  return `${prefix}--${randomUUID()}`
+}
+
+/**
+ * Minimal valid STIX 2.1 bundle: one identity, one vulnerability per finding
+ * (severity labels + CVE external references), and one indicator per IOC with
+ * a standard capture pattern.
+ */
+async function stixReport(store: import('./store.js').EngagementStore, sid: string): Promise<string> {
+  const r = store.engagementRecords(sid)
+  const now = new Date()
+  const identityId = stixId('identity')
+  const identity = {
+    type: 'identity',
+    spec_version: '2.1',
+    id: identityId,
+    created: now.toISOString(),
+    modified: now.toISOString(),
+    name: 'dsh-redteam engagement',
+    description: r.goal !== null ? `${r.goal.objective} — authorization: ${r.goal.authorization}` : 'dsh-redteam',
+    identity_class: 'individual',
+  }
+  const objects: Record<string, unknown>[] = [identity]
+  for (const [, f] of r.findings) {
+    const created = new Date(f.createdAt).toISOString()
+    objects.push({
+      type: 'vulnerability',
+      spec_version: '2.1',
+      id: stixId('vulnerability'),
+      created_by_ref: identityId,
+      created,
+      modified: created,
+      name: f.title.slice(0, 200),
+      description: [f.description, ...f.reproducibleSteps.map((s, i) => `${i + 1}. ${s}`)].join('\n'),
+      labels: [`severity:${f.severity}`, ...(f.status === 'fixed' ? ['retest:fixed'] : [])],
+      ...(f.cveIds !== undefined && f.cveIds.length > 0
+        ? { external_references: f.cveIds.map((cve) => ({ source_name: 'cve', external_id: cve })) }
+        : {}),
+      custom_properties: {
+        ...(f.cvssScore !== undefined ? { x_dsh_cvss_score: f.cvssScore } : {}),
+        ...(f.detected !== undefined ? { x_dsh_detection: f.detected } : {}),
+      },
+    })
+  }
+  for (const [, ioc] of r.iocs) {
+    const pattern = stixPattern(ioc.type, ioc.value)
+    if (pattern === null) continue
+    const created = new Date(ioc.createdAt).toISOString()
+    objects.push({
+      type: 'indicator',
+      spec_version: '2.1',
+      id: stixId('indicator'),
+      created_by_ref: identityId,
+      created,
+      modified: created,
+      name: `${ioc.type}: ${ioc.value.slice(0, 120)}`,
+      indicator_types: ['malicious-activity'],
+      pattern,
+      pattern_type: 'stix',
+      valid_from: created,
+    })
+  }
+  const bundle = { type: 'bundle', id: stixId('bundle'), objects }
+  return JSON.stringify(bundle, null, 2)
+}
+
 async function markdownReport(
   store: import('./store.js').EngagementStore,
   sid: string,
@@ -697,6 +851,42 @@ async function markdownReport(
   lines.push('')
 
   const c = store.counts(sid)
+  const stEarly = store.state(sid)
+  lines.push('## 执行摘要 / Executive summary')
+  lines.push('')
+  const bySeverityEarly = new Map<string, number>()
+  for (const [, f] of r.findings) bySeverityEarly.set(f.severity, (bySeverityEarly.get(f.severity) ?? 0) + 1)
+  const headline = SEVERITIES
+    .map((s) => ({ s, n: bySeverityEarly.get(s) ?? 0 }))
+    .find(({ n }) => n > 0)
+  if (r.goal !== null && r.goal.outcome !== undefined) {
+    const verdict: Record<string, string> = {
+      achieved: '目标达成 / objective ACHIEVED',
+      partial: '部分达成 / objective PARTIALLY achieved',
+      'not-achieved': '未达成 / objective NOT achieved',
+    }
+    lines.push(verdict[r.goal.outcome] ?? r.goal.outcome)
+  }
+  lines.push(
+    headline === undefined
+      ? `本次 engagement 记录了 ${c.intents} 个意图、${c.assets} 个资产，尚未确认漏洞。`
+      : `最严重风险 / top risk: ${headline.s.toUpperCase()} × ${headline.n}（共 ${r.findings.length} 个漏洞）。`,
+  )
+  const totalAssetsEarly = stEarly.coverage.tested.length + stEarly.coverage.untested.length
+  if (totalAssetsEarly > 0) {
+    lines.push(
+      `资产覆盖 / asset coverage: ${Math.round(stEarly.coverage.tested.length / totalAssetsEarly * 100)}%` +
+      ` (${stEarly.coverage.tested.length}/${totalAssetsEarly})；ATT&CK 证实 ${stEarly.techniques.proven.length} 项。`,
+    )
+  }
+  if (stEarly.credentialReuse.length > 0) {
+    lines.push(`⚠ 凭据复用 / credential reuse: ${stEarly.credentialReuse.length} 组口令材料跨目标复用，建议横向排查。`)
+  }
+  for (const step of stEarly.nextSteps.slice(0, 3)) {
+    lines.push(`- 下一步 / next: ${step}`)
+  }
+  lines.push('')
+
   lines.push('## 概览 / Overview')
   lines.push('')
   lines.push(`| intents | facts | assets | findings | evidence | credentials | artifacts | hints | samples | iocs |`)
@@ -842,6 +1032,17 @@ async function markdownReport(
     }
   }
   lines.push('')
+  const reuse = store.credentialReuse(sid)
+  if (reuse.length > 0) {
+    lines.push('### 凭据复用 / Credential reuse')
+    lines.push('')
+    lines.push('| secret (masked) | kinds | targets |')
+    lines.push('|---|---|---|')
+    for (const g of reuse) {
+      lines.push(`| ${g.mask} | ${g.kinds.join(', ')} | ${g.targets.map((t) => `\`${t}\``).join(', ')} |`)
+    }
+    lines.push('')
+  }
 
   lines.push('## 产物 / Artifacts')
   lines.push('')

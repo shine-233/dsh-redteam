@@ -1019,6 +1019,8 @@ export class EngagementStore {
     coverage: { tested: string[]; untested: string[] }
     techniques: { attempted: string[]; proven: string[] }
     objectiveProgress: { total: number; proven: number }
+    credentialReuse: { mask: string; targets: string[]; kinds: string[] }[]
+    nextSteps: string[]
   } {
     const goal = this.currentGoal(sessionId)
     const win = this.windowOf(sessionId)
@@ -1027,6 +1029,39 @@ export class EngagementStore {
       : this.rowsInWindow('intents', sessionId, win) as [string, IntentRecord][]
     const progress = { active: 0, done: 0, blocked: 0 }
     for (const [, intent] of intents) progress[intent.status ?? 'active'] += 1
+    const coverage = this.coverage(sessionId)
+    const techniques = this.techniqueCoverage(sessionId)
+    const objectiveProgress = this.objectiveProgress(sessionId)
+    const credentialReuse = this.credentialReuse(sessionId)
+    const unverifiedCredentials = win === null
+      ? 0
+      : (this.rowsInWindow('credentials', sessionId, win) as [string, CredentialRecord][])
+        .filter(([, c]) => c.status === 'unverified').length
+    const findingsCount = this.counts(sessionId).findings
+    const nextSteps: string[] = []
+    if (coverage.untested.length > 0) {
+      nextSteps.push(`覆盖缺口 / coverage gap: ${coverage.untested.length} asset(s) untouched — anchor them via redteam_add_intent assetIds`)
+    }
+    if (progress.blocked > 0) {
+      nextSteps.push(`${progress.blocked} blocked intent(s) — revisit or redirect via redteam_update_intent`)
+    }
+    const openObjectives = objectiveProgress.total - objectiveProgress.proven
+    if (openObjectives > 0) {
+      nextSteps.push(`${openObjectives} objective(s) still open — prove with evidence via redteam_prove_objective`)
+    }
+    if (unverifiedCredentials > 0) {
+      nextSteps.push(`${unverifiedCredentials} credential(s) unverified — validate via redteam_update_credential`)
+    }
+    if (credentialReuse.length > 0) {
+      nextSteps.push(`credential material reused across ${credentialReuse.length} group(s) — try it on sibling targets and record hits`)
+    }
+    const attemptedOnly = techniques.attempted.length - techniques.proven.length
+    if (attemptedOnly > 0) {
+      nextSteps.push(`${attemptedOnly} ATT&CK technique(s) attempted without proof — dig deeper or log a finding`)
+    }
+    if (findingsCount === 0 && intents.length > 0) {
+      nextSteps.push('no confirmed finding yet — capture successful actions via redteam_add_finding')
+    }
     return {
       goal: goal === undefined ? null : (({ id: _id, ...rest }) => rest)(goal),
       counts: this.counts(sessionId),
@@ -1034,10 +1069,34 @@ export class EngagementStore {
         .filter(([, record]) => (record.status ?? 'active') === 'active')
         .map(([id, record]) => ({ id, title: record.title })),
       progress,
-      coverage: this.coverage(sessionId),
-      techniques: this.techniqueCoverage(sessionId),
-      objectiveProgress: this.objectiveProgress(sessionId),
+      coverage,
+      techniques,
+      objectiveProgress,
+      credentialReuse,
+      nextSteps,
     }
+  }
+
+  /**
+   * Credential exposure analysis: same secret material observed on more than
+   * one target/asset/account. Grouped by raw secret equality (store-side
+   * only); the report shows the mask, never the material.
+   */
+  credentialReuse(sessionId: string): { mask: string; targets: string[]; kinds: string[] }[] {
+    const win = this.windowOf(sessionId)
+    if (win === null) return []
+    const groups = new Map<string, { mask: string; targets: string[]; kinds: string[] }>()
+    for (const [, cr] of this.rowsInWindow('credentials', sessionId, win) as [string, CredentialRecord][]) {
+      const key = `${cr.kind}\u0000${cr.secret}`
+      const entry = groups.get(key) ?? { mask: maskSecret(cr.secret), targets: [], kinds: [] }
+      const where = cr.target ?? (cr.assetId !== '' ? cr.assetId : undefined) ?? cr.username ?? '(unbound)'
+      if (!entry.targets.includes(where)) entry.targets.push(where)
+      if (!entry.kinds.includes(cr.kind)) entry.kinds.push(cr.kind)
+      groups.set(key, entry)
+    }
+    return [...groups.values()]
+      .filter((g) => g.targets.length > 1)
+      .sort((a, b) => b.targets.length - a.targets.length)
   }
 
   /** Full engagement graph (active engagement only) with derived edges. */

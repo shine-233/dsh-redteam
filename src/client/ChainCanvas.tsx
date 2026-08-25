@@ -9,12 +9,12 @@
 import { useEffect, useRef } from 'react'
 import type { RedteamProjection } from '../types.js'
 
-export interface GraphNode {
+interface GraphNode {
   id: string
   kind: 'goal' | 'intent' | 'fact' | 'finding'
   label: string
   status: string | null
-  severity?: string
+  severity?: string | undefined
   x: number
   y: number
   vx: number

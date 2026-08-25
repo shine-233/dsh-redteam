@@ -12,8 +12,8 @@ interface P3 {
   id: string
   label: string
   kind: 'goal' | 'intent' | 'fact' | 'finding' | 'asset'
-  severity?: string
-  status?: string | null
+  severity?: string | undefined
+  status?: string | null | undefined
   x: number
   y: number
   z: number

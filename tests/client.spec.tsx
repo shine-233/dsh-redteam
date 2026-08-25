@@ -10,6 +10,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { RedteamView } from '../src/client/RedteamView.js'
 import type { RedteamProjection } from '../src/types.js'
 
+;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
+
 const projection: RedteamProjection = {
   goal: { objective: '拿下核心域控', authorization: '授权书 #2024-001', outcome: null },
   nodes: [
@@ -85,7 +87,6 @@ describe('RedteamView client smoke', () => {
   })
 
   it('switches through every sub-tab rendering its body', () => {
-    vi_useFakeTimersIfNeeded()
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -97,7 +98,7 @@ describe('RedteamView client smoke', () => {
     for (let i = 0; i < TAB_IDS.length; i++) {
       const button = tabs[i]
       if (button === undefined) throw new Error(`missing tab ${i}`)
-      act(() => { button.click() })
+      act(() => { (button as HTMLElement).click() })
       const body = container.querySelector('.rt-body')
       expect(body, `body for ${TAB_IDS[i]}`).not.toBeNull()
       expect(body!.childElementCount).toBeGreaterThan(0)
@@ -119,7 +120,3 @@ describe('RedteamView client smoke', () => {
     container.remove()
   })
 })
-
-function vi_useFakeTimersIfNeeded(): void {
-  // StatsView schedules a 30ms mount timer; jsdom fires it naturally.
-}
