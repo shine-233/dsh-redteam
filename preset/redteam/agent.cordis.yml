@@ -1,0 +1,246 @@
+# The `redteam` agent preset: red-team / penetration-testing commander mode.
+#
+# Composition adapted from the shipped `standard` preset of DeepSeek Harness
+# (MIT, apps/cli/config/agent-presets/standard) with two changes:
+# 1. a commander persona and the `dsh-redteam/redteam` plugin row — the
+#    提案→决策→执行 protocol arrives from the `redteam:protocol` system-prompt
+#    section contributed by that plugin;
+# 2. execution-only delegation personas: children may batch-submit confirmed
+#    results to their assigned intent via `redteam_submit`, nothing else.
+#
+# AGENT-PLANE composition: mounted once under a standing scope; sessions join
+# by scope parentage. Service rows sit inside `isolate` realms per the
+# agent-presets contract. The redteam plugin publishes no service (it
+# registers tools on the host `tools` registry, a prompt section, and a
+# session-projection unit), so its row sits loose like tool rows.
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      You are the red-team engagement commander (decision agent), powered by {{model}}.
+      Your working directory is {{cwd}}. You open exactly one engagement at a time via
+      redteam_add_goal (objective + authorization), decompose it into exploration intents,
+      and delegate verification work to subagents, which submit confirmed results directly
+      to their assigned intent through redteam_submit. Every claim that reaches the record
+      must carry evidence captured during the engagement. Follow the redteam:protocol
+      system-prompt section exactly.
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+# ── shell ───────────────────────────────────────────────────────────────────
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# ── background jobs ────────────────────────────────────────────────────────
+
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+# ── skills ──────────────────────────────────────────────────────────────────
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+# ── goals ───────────────────────────────────────────────────────────────────
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+# ── compaction ──────────────────────────────────────────────────────────────
+
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+# ── delegation and workflows ────────────────────────────────────────────────
+
+- id: delegation
+  name: cordis:group
+  group: true
+  isolate:
+    workflowEngine: true
+  config:
+    - id: tool-subagent-control
+      name: '@deepseek-ai/dsh-tool-subagent-control'
+
+    - id: tool-subagent-list-agents
+      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+    # Execution-only child: submits to the parent intent, never composes.
+    # DSH rc-line inherits the parent preset for children; until an explicit
+    # child-preset option exists this persona + deny filter is the fence.
+    - id: tool-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: subagent
+        backgroundMode: continuable
+        maxDepth: 1
+        persona: |-
+          你是红队执行子 agent，不是指挥官。仅执行委派任务；不要创建 goal、intent、报告，或继续委派。
+          保留并遵守委派中的目标、授权范围与安全约束；只能在授权范围内操作。
+
+          委派输入必须包含：目标、授权范围、父 intentId（redteam_add_intent 刚返回的真实 ID）、待验证任务、
+          已知资产及可引用的资产 ID。若委派未提供真实父 intentId，不得调用 redteam_submit，
+          应简要告知父 agent 补充。delegation-intent-id、<intentId> 等占位符一律无效。
+
+          不臆造证据、资产、漏洞或复现步骤。每得到一组独立、已确认的结果就立即调用 redteam_submit 分批提交，
+          绝不重复提交同一条：
+          {"intentId":"…","evidence":[{"kind":"command|output|screenshot|file|url|note","content":"…","label":"…"}],
+           "facts":[{...,"evidenceIds":["ev-1"]}],"assets":[{"type":"…","value":"…","parentId":"asset-1"}],
+           "findings":[{"title":"…","severity":"low|medium|high|critical","description":"…",
+                        "reproducibleSteps":["…"],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
+          同一批次内：evidence 先建，facts/findings 可引用本批 evidenceIds，findings 可引用本批 assets 的 ID。
+
+          提交成功后，最终回复只写结论、证据摘要与提交计数；不要粘贴命令原文、响应正文或完整 JSON。
+        toolFilter:
+          deny:
+            - redteam_add_goal
+            - redteam_add_intent
+            - redteam_add_evidence
+            - redteam_add_fact
+            - redteam_add_asset
+            - redteam_add_finding
+            - redteam_state
+            - redteam_graph
+            - redteam_report
+            - redteam_engagements
+            - subagent
+            - subagent_fork
+
+    - id: tool-subagent-fork
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: fork
+        toolName: subagent_fork
+        backgroundMode: continuable
+        maxDepth: 1
+        persona: |-
+          你是红队执行子 agent，不是指挥官。仅执行委派任务；不要创建 goal、intent、报告，或继续委派。
+          保留并遵守委派中的目标、授权范围与安全约束；只能在授权范围内操作。
+
+          委派输入必须包含：目标、授权范围、父 intentId（redteam_add_intent 刚返回的真实 ID）、待验证任务、
+          已知资产及可引用的资产 ID。若委派未提供真实父 intentId，不得调用 redteam_submit，
+          应简要告知父 agent 补充。delegation-intent-id、<intentId> 等占位符一律无效。
+
+          不臆造证据、资产、漏洞或复现步骤。每得到一组独立、已确认的结果就立即调用 redteam_submit 分批提交，
+          绝不重复提交同一条：
+          {"intentId":"…","evidence":[{"kind":"command|output|screenshot|file|url|note","content":"…","label":"…"}],
+           "facts":[{...,"evidenceIds":["ev-1"]}],"assets":[{"type":"…","value":"…","parentId":"asset-1"}],
+           "findings":[{"title":"…","severity":"low|medium|high|critical","description":"…",
+                        "reproducibleSteps":["…"],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
+          同一批次内：evidence 先建，facts/findings 可引用本批 evidenceIds，findings 可引用本批 assets 的 ID。
+
+          提交成功后，最终回复只写结论、证据摘要与提交计数；不要粘贴命令原文、响应正文或完整 JSON。
+        toolFilter:
+          deny:
+            - redteam_add_goal
+            - redteam_add_intent
+            - redteam_add_evidence
+            - redteam_add_fact
+            - redteam_add_asset
+            - redteam_add_finding
+            - redteam_state
+            - redteam_graph
+            - redteam_report
+            - redteam_engagements
+            - subagent
+            - subagent_fork
+
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: codex
+        toolName: subagent_codex
+        enableRunInBackground: false
+        maxDepth: provider-managed
+
+    - id: tool-subagent-claude-code
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: claude-code
+        toolName: subagent_claude_code
+        enableRunInBackground: false
+        maxDepth: provider-managed
+
+    - id: workflow-worker-thread
+      name: '@deepseek-ai/dsh-workflow-worker-thread'
+      config:
+        provider: spawn
+
+    - id: tool-workflow
+      name: '@deepseek-ai/dsh-tool-workflow'
+
+    - id: tool-ralph
+      name: '@deepseek-ai/dsh-tool-ralph'
+      config:
+        subagentProvider: spawn
+        maxRounds: 64
+
+# ── remaining model-facing rows ─────────────────────────────────────────────
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: false
+    searchTimeoutMs: 60000
+
+# ── red-team mode ───────────────────────────────────────────────────────────
+
+# The single redteam plugin: eleven model-facing redteam_* tools on the host
+# tools registry, the redteam:protocol system-prompt section, and the standing
+# session-projection unit for the Web tab. Publishes no service; consumes the
+# host storageDomain facility; needs no realm.
+- id: redteam
+  name: 'dsh-redteam/redteam'

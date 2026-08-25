@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": false,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "rootDir": ".",
+    "noEmit": true,
+    "paths": {
+      "@deepseek-ai/cordis": ["./types/vendor/cordis.d.ts"],
+      "@deepseek-ai/schemastery": ["./types/vendor/schemastery.d.ts"],
+      "@deepseek-ai/dsh-tools": ["./types/host/tools.d.ts"],
+      "@deepseek-ai/dsh-storage": ["./types/host/storage.d.ts"],
+      "@deepseek-ai/dsh-storage-domain": ["./types/host/storage-domain.d.ts"],
+      "@deepseek-ai/dsh-session-projection": ["./types/host/session-projection.d.ts"],
+      "@deepseek-ai/dsh-session-projection/types": ["./types/host/session-projection-types.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "types/**/*.d.ts", "tsdown.config.ts"],
+  "exclude": [
+    "src/client",
+    "tests/fakes"
+  ]
+}

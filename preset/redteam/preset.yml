@@ -1,0 +1,2 @@
+name: 红队模式
+description: 面向授权红队/渗透测试的 engagement 工作流：目标与授权留痕、意图链、证据链、事实、漏洞与资产，支持跨会话历史与 Markdown/JSON 报告。

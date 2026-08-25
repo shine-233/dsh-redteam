@@ -1,0 +1,152 @@
+/**
+ * EngagementStore behavior: deterministic ids, reference validation,
+ * engagement windows, derived edges, history, and report rendering.
+ */
+
+import { describe, expect, it } from 'vitest'
+import { redteamDomainSpec } from '../src/spec.js'
+import { EngagementStore, StoreError } from '../src/store.js'
+import { MemoryDomainFacility } from './fakes/storage-domain.js'
+
+async function makeStore() {
+  const facility = new MemoryDomainFacility()
+  const domain = await facility.open(redteamDomainSpec as never)
+  return new EngagementStore(domain as never)
+}
+
+const SID = 'sess-a'
+
+async function opened(store: EngagementStore): Promise<void> {
+  await store.openGoal(SID, {
+    objective: 'test external perimeter',
+    authorization: 'ROE #2026-041',
+    scope: 'example.net',
+  })
+}
+
+describe('EngagementStore', () => {
+  it('requires an open engagement before writes', async () => {
+    const store = await makeStore()
+    await expect(store.addIntent(SID, { title: 'x' })).rejects.toMatchObject({
+      code: 'no-active-engagement',
+    } satisfies Partial<StoreError>)
+  })
+
+  it('mints deterministic per-kind ids and keeps them unique across engagements', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const i1 = await store.addIntent(SID, { title: 'recon' })
+    const i2 = await store.addIntent(SID, { title: 'enum' })
+    expect([i1, i2]).toEqual(['intent-1', 'intent-2'])
+
+    // Close engagement #1 by opening #2; counters continue.
+    await store.openGoal(SID, { objective: 'phase two', authorization: 'ROE #2026-042' })
+    const i3 = await store.addIntent(SID, { title: 'post-exploit' })
+    expect(i3).toBe('intent-3')
+  })
+
+  it('validates references on fact/finding/asset writes', async () => {
+    const store = await makeStore()
+    await opened(store)
+    await expect(
+      store.addFact(SID, 'intent-nope', { detail: 'x' }),
+    ).rejects.toMatchObject({ code: 'missing-ref' })
+    const intent = await store.addIntent(SID, { title: 'web' })
+    await expect(
+      store.addFact(SID, intent, { detail: 'observed', evidenceIds: ['ev-9'] }),
+    ).rejects.toMatchObject({ code: 'missing-ref' })
+    const ev = await store.addEvidence(SID, { kind: 'command', content: 'curl -s https://example.net' })
+    const fid = await store.addFact(SID, intent, { detail: 'server up', evidenceIds: [ev] })
+    expect(fid).toBe('fact-1')
+    await expect(
+      store.addAsset(SID, { type: 'host', value: 'a', parentId: 'asset-nope' }),
+    ).rejects.toMatchObject({ code: 'missing-ref' })
+  })
+
+  it('derives edges from references and scopes the graph to the active engagement', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const intent = await store.addIntent(SID, { title: 'perimeter' })
+    const asset1 = await store.addAsset(SID, { type: 'domain', value: 'example.net' })
+    await store.addAsset(SID, { type: 'host', value: 'www.example.net', parentId: asset1 })
+    await store.addFinding(SID, intent, {
+      title: 'outdated portal',
+      severity: 'high',
+      description: 'portal runs EOL framework',
+      reproducibleSteps: ['browse /login', 'observe banner'],
+    })
+
+    const graph = store.graph(SID)
+    expect(graph.nodes.map((n) => n.id)).toEqual(['goal-1', intent])
+    const relations = graph.edges.map((e) => e.relation).sort()
+    expect(relations).toEqual(['parent', 'proves', 'spawns'])
+    expect(graph.assets[1]!.parentId).toBe(asset1)
+
+    // New engagement: the window resets to the new goal.
+    await new Promise((resolve) => setTimeout(resolve, 3))
+    await store.openGoal(SID, { objective: 'phase 2', authorization: 'ROE' })
+    const next = store.graph(SID)
+    expect(next.nodes.map((n) => n.kind)).toEqual(['goal'])
+    expect(next.edges).toEqual([])
+    expect(next.counts.intents).toBe(0)
+  })
+
+  it('submit batch allows intra-batch references in declaration order', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const intent = await store.addIntent(SID, { title: 'batch anchor' })
+    const result = await store.submit(SID, {
+      intentId: intent,
+      evidence: [{ kind: 'output', content: 'HTTP/1.1 200 OK', label: 'banner' }],
+      assets: [{ type: 'service', value: 'https://example.net' }],
+      findings: [{
+        title: 'weak tls',
+        severity: 'medium',
+        description: 'TLS 1.0 enabled',
+        reproducibleSteps: ['nmap --script ssl-enum-ciphers'],
+        affectedAssetId: 'asset-1',
+        evidenceIds: ['ev-1'],
+      }],
+    })
+    expect(result.evidence).toEqual(['ev-1'])
+    expect(result.assets).toEqual(['asset-1'])
+    expect(result.findings).toEqual(['finding-1'])
+
+    const state = store.state(SID)
+    expect(state.counts).toMatchObject({ findings: 1, evidence: 1 })
+  })
+
+  it('lists cross-session engagement history newest first with per-goal counts', async () => {
+    const store = await makeStore()
+    await store.openGoal('sess-1', { objective: 'first', authorization: 'A' })
+    await new Promise((resolve) => setTimeout(resolve, 3))
+    await store.openGoal('sess-2', { objective: 'second', authorization: 'B' })
+    await store.addIntent('sess-2', { title: 'i' })
+    const list = store.listEngagements()
+    expect(list.map((e) => e.objective)).toEqual(['second', 'first'])
+    expect(list[0]!.counts.intents).toBe(1)
+    expect(list[1]!.counts.intents).toBe(0)
+    expect(list[0]!.goalId).toBe('goal-1')
+  })
+
+  it('renders markdown report with authorization trail and sorted findings', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const intent = await store.addIntent(SID, { title: 'web' })
+    await store.addFinding(SID, intent, {
+      title: 'low sev issue',
+      severity: 'low',
+      description: 'd',
+      reproducibleSteps: ['step'],
+    })
+    await store.addFinding(SID, intent, {
+      title: 'critical issue',
+      severity: 'critical',
+      description: 'd2',
+      reproducibleSteps: ['step2'],
+    })
+    const records = store.engagementRecords(SID)
+    expect(records.goal!.authorization).toBe('ROE #2026-041')
+    expect(records.findings).toHaveLength(2)
+  })
+})

@@ -1,0 +1,69 @@
+{
+  "name": "dsh-redteam",
+  "description": "DeepSeek Harness 红队/渗透测试模式 bundle：授权范围内的 engagement 记录（目标→意图→证据→事实→漏洞→资产）、跨会话历史、Markdown/JSON 报告与 Web 可视化。",
+  "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./redteam": "./lib/redteam.js",
+    "./storage-sqlite": "./lib/storage-sqlite/index.js",
+    "./preset-root": "./lib/preset-root.js",
+    "./ui": "./lib/ui.js",
+    "./ui/package.json": "./package.json",
+    "./client": "./lib/client.js",
+    "./invariant": "./lib/invariant.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "preset/redteam/**",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "pack:bundle": "npm pack"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=0.1.0-rc.2",
+    "@deepseek-ai/dsh-storage": ">=0.1.0-rc.2",
+    "@deepseek-ai/dsh-storage-domain": ">=0.1.0-rc.2",
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.2"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^24.0.0",
+    "js-yaml": "^4.1.0",
+    "jsdom": "^26.1.0",
+    "tsdown": "^0.15.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.1.0"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

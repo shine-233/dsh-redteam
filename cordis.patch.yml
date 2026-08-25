@@ -1,0 +1,38 @@
+# The dsh-redteam bundle patch: the red-team surface over dsh-base + dsh-web-app.
+# One self-contained package — every row resolves to a subpath of this package,
+# so the whole thing installs from a single tarball via `dsh plugin add`.
+#
+# Contributes:
+# 1. the sqlite backend row (redteam records live in their own database file);
+# 2. the Web surface row (the per-session 红队 view tab; client face is ./client);
+# 3. a storage-domain route selecting the sqlite backend for the `redteam`
+#    domain only. Config is replaced wholesale, so the host default backend
+#    (json) is restated here;
+# 4. a preset-root row registering this package's read-only preset directory.
+#
+# The redteam HOST plugin belongs exclusively to the `redteam` agent preset
+# (see preset/redteam/agent.cordis.yml). Registering it here as well would
+# duplicate its scoped tool catalog whenever that preset is selected, causing
+# client command invalidation loops.
+
+- insert:
+    - id: ui-redteam
+      name: 'dsh-redteam/ui'
+
+    - id: storage-sqlite
+      name: 'dsh-redteam/storage-sqlite'
+      config:
+        path: !!js dshHomePath('storages', 'redteam.db')
+
+- id: storage-domain
+  config:
+    backend: json
+    routes:
+      redteam: sqlite
+
+# DSH rc-line replaces configured preset roots with its bundled root while it
+# boots a profile; preset-root appends this package's read-only root after
+# agent-presets exists, without copying files into DSH_HOME.
+- insert:
+    - id: redteam-preset-root
+      name: 'dsh-redteam/preset-root'
