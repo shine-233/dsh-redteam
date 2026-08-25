@@ -9,6 +9,8 @@
 
 import type { ProjectionSessionEvent } from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
+import { ATTACK_TECHNIQUE_RE, scoreVector } from './cvss.js'
+import { CREDENTIAL_KINDS, CREDENTIAL_STATUSES } from './types.js'
 import type {
   EdgeRelation,
   EngagementCounts,
@@ -48,7 +50,17 @@ export const redteamProjectionSchema = z.object({
     intentId: z.string(),
     title: z.string(),
     severity: z.enum(['info', 'low', 'medium', 'high', 'critical']),
+    cvssScore: z.union([z.number(), z.null()]).default(null),
+    techniqueIds: z.array(z.string()).default([]),
   })),
+  credentials: z.array(z.object({
+    id: z.string(),
+    kind: z.enum(['password', 'hash', 'api-key', 'token', 'ssh-key', 'other']),
+    username: z.union([z.string(), z.null()]),
+    target: z.union([z.string(), z.null()]),
+    assetId: z.union([z.string(), z.null()]),
+    status: z.enum(['unverified', 'valid', 'invalid']),
+  })).default([]),
   edges: z.array(edgeSchema),
   counts: z.object({
     intents: z.number(),
@@ -56,6 +68,7 @@ export const redteamProjectionSchema = z.object({
     assets: z.number(),
     findings: z.number(),
     evidence: z.number(),
+    credentials: z.number().default(0),
   }),
 })
 
@@ -65,6 +78,7 @@ export interface FoldState {
   nodes: RedteamViewNode[]
   assets: RedteamViewAsset[]
   findings: RedteamViewFinding[]
+  credentials: import('./types.js').RedteamViewCredential[]
   edges: GraphEdge[]
   counts: EngagementCounts
   /** callId → full pre-call snapshot, for rollback on failed results. */
@@ -82,6 +96,7 @@ const MUTATING = new Set([
   'redteam_add_fact',
   'redteam_add_asset',
   'redteam_add_finding',
+  'redteam_add_credential',
   'redteam_submit',
 ])
 
@@ -91,8 +106,9 @@ function emptyState(): FoldState {
     nodes: [],
     assets: [],
     findings: [],
+    credentials: [],
     edges: [],
-    counts: { intents: 0, facts: 0, assets: 0, findings: 0, evidence: 0 },
+    counts: { intents: 0, facts: 0, assets: 0, findings: 0, evidence: 0, credentials: 0 },
     pending: {},
   }
 }
@@ -176,14 +192,33 @@ function applyMutation(state: FoldState, name: string, args: any): void {
         intentId: intent,
         title: String(args?.title ?? ''),
         severity: validateSeverity(args?.severity),
+        cvssScore: typeof args?.cvssVector === 'string' ? scoreVector(args.cvssVector) : null,
+        techniqueIds: Array.isArray(args?.techniqueIds)
+          ? args.techniqueIds.filter((t: unknown) => typeof t === 'string' && ATTACK_TECHNIQUE_RE.test(t))
+          : [],
       })
       state.findings = evictOldest([...state.findings], WINDOW_CAP)
       state.edges = evictOldest([...state.edges], WINDOW_CAP * 2)
       break
     }
+    case 'redteam_add_credential': {
+      const id = nextId(state, 'cred')
+      // Secrets never enter the projection — masked metadata only.
+      state.credentials.push({
+        id,
+        kind: CREDENTIAL_KINDS.includes(args?.kind) ? args.kind : 'other',
+        username: typeof args?.username === 'string' && args.username !== '' ? args.username : null,
+        target: typeof args?.target === 'string' && args.target !== '' ? args.target : null,
+        assetId: typeof args?.assetId === 'string' && args.assetId !== '' ? args.assetId : null,
+        status: CREDENTIAL_STATUSES.includes(args?.status) ? args.status : 'unverified',
+      })
+      state.credentials = evictOldest([...state.credentials], WINDOW_CAP)
+      break
+    }
     case 'redteam_submit': {
       for (const item of args?.evidence ?? []) void item // count only
       for (const item of args?.assets ?? []) applyMutation(state, 'redteam_add_asset', item)
+      for (const item of args?.credentials ?? []) applyMutation(state, 'redteam_add_credential', item)
       for (const item of args?.facts ?? []) applyMutation(state, 'redteam_add_fact', { ...item, intentId: args?.intentId })
       for (const item of args?.findings ?? []) applyMutation(state, 'redteam_add_finding', { ...item, intentId: args?.intentId })
       break
@@ -209,6 +244,7 @@ function recount(state: FoldState): FoldState['counts'] {
     assets: state.assets.length,
     findings: proves.length,
     evidence: state.counts.evidence,
+    credentials: state.credentials.length,
   }
 }
 
@@ -228,6 +264,7 @@ export function fold(state: FoldState, event: ProjectionSessionEvent): FoldState
       nodes: [...state.nodes],
       assets: [...state.assets],
       findings: [...state.findings],
+      credentials: [...state.credentials],
       edges: [...state.edges],
       counts: { ...state.counts },
       pending: { ...state.pending },
@@ -268,9 +305,10 @@ export const redteamProjectionDefinition = {
       nodes: state.nodes,
       assets: state.assets,
       findings: state.findings,
+      credentials: state.credentials,
       edges: state.edges,
       counts: state.counts,
     }),
   },
-  stateVersion: 1,
+  stateVersion: 2,
 }

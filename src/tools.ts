@@ -8,8 +8,9 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { EVIDENCE_KINDS, SEVERITIES } from './types.js'
-import type { EngagementStore, NewAsset, NewEvidence, NewFinding, NewFact, SubmitResult } from './store.js'
+import { CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, PHASES, SEVERITIES } from './types.js'
+import type { EngagementStore, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, SubmitResult } from './store.js'
+import { maskSecret } from './secrets.js'
 
 export interface ToolDeps {
   store: () => Promise<EngagementStore>
@@ -45,6 +46,7 @@ const factItems = {
     kind: { type: 'string', description: 'Optional classification (e.g. recon, auth, config).' },
     target: { type: 'string', description: 'What the observation is about (host/url/endpoint).' },
     confidence: { type: 'number', description: '0–1 confirmation level; omit when asserted only.' },
+    phase: { type: 'string', enum: [...PHASES], description: 'Kill-chain phase of this observation.' },
     evidenceIds: { type: 'array', items: { type: 'string' }, description: 'Evidence ids minted earlier in this batch.' },
   },
 } as const
@@ -73,6 +75,27 @@ const findingItems = {
     affectedAssetId: { type: 'string', description: 'Asset id minted earlier in this batch or before.' },
     evidenceIds: { type: 'array', items: { type: 'string' } },
     remediation: { type: 'string', description: 'Fix suggestion.' },
+    techniqueIds: {
+      type: 'array', items: { type: 'string' },
+      description: "MITRE ATT&CK technique ids, e.g. ['T1110','T1110.003'].",
+    },
+    cvssVector: {
+      type: 'string',
+      description: "CVSS v3.1 base vector, e.g. 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'; score derived automatically.",
+    },
+  },
+} as const
+
+const credentialItems = {
+  type: 'object', required: true, additionalProperties: false,
+  properties: {
+    kind: { type: 'string', required: true, enum: [...CREDENTIAL_KINDS], description: 'Credential material kind.' },
+    secret: { type: 'string', required: true, description: 'The secret itself (stored; masked in all views and reports).' },
+    username: { type: 'string', description: 'Login name if known.' },
+    target: { type: 'string', description: 'Where the credential applies (host/service/realm).' },
+    assetId: { type: 'string', description: 'Asset id the credential belongs to.' },
+    status: { type: 'string', enum: [...CREDENTIAL_STATUSES], description: 'Default unverified.' },
+    notes: { type: 'string' },
   },
 } as const
 
@@ -109,13 +132,16 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     }, args),
   })
 
-  const addIntent = defineTool<{ title: string; rationale?: string }, { intentId: string }>({
+  const addIntent = defineTool<{
+    title: string; rationale?: string; phase?: (typeof PHASES)[number]
+  }, { intentId: string }>({
     name: 'redteam_add_intent',
     description:
       'Declare one exploration intent under the active engagement. Intents are the anchor nodes facts/findings attach to.',
     parameters: {
       title: { type: 'string', required: true, description: 'Short direction title.' },
       rationale: { type: 'string', description: 'Why this direction matters.' },
+      phase: { type: 'string', enum: [...PHASES], description: 'Kill-chain phase this direction serves.' },
     },
     output: {
       schema: {},
@@ -182,24 +208,38 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     execute: (args, exec) => withStore(exec, async (store, sid, a) => ({ findingId: await store.addFinding(sid, a.intentId, a) }), args),
   })
 
+  const addCredential = defineTool<NewCredential, { credentialId: string }>({
+    name: 'redteam_add_credential',
+    description:
+      'Register discovered credential material (password, hash, api-key, token, ssh-key). Raw secret is stored but every view and report shows it masked. Cite assetId when the credential belongs to a registered asset.',
+    parameters: { ...credentialItems.properties },
+    output: {
+      schema: {},
+      render: (_a, v) => [{ type: 'text', text: `credential ${v.credentialId} stored (secret masked in views/reports)` }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid) => ({ credentialId: await store.addCredential(sid, args) }), args),
+  })
+
   const submit = defineTool<{
-    intentId: string; evidence?: NewEvidence[]; facts?: NewFact[]; assets?: NewAsset[]; findings?: NewFinding[]
+    intentId: string; evidence?: NewEvidence[]; facts?: NewFact[]; assets?: NewAsset[]
+    findings?: NewFinding[]; credentials?: NewCredential[]
   }, SubmitResult>({
     name: 'redteam_submit',
     description:
-      'Batch-write confirmed results to one parent intent (subagent entry point). Within one batch: evidence mints first, then assets; facts/findings may cite fresh evidenceIds and asset ids. Never resubmit duplicates.',
+      'Batch-write confirmed results to one parent intent (subagent entry point). Within one batch: evidence mints first, then assets and credentials; facts/findings may cite fresh evidenceIds and asset ids. Never resubmit duplicates.',
     parameters: {
       intentId: { type: 'string', required: true, description: 'Parent intent id assigned by the commander.' },
       evidence: { type: 'array', items: evidenceItems, description: 'New evidence created before facts/findings.' },
       facts: { type: 'array', items: factItems },
       assets: { type: 'array', items: assetItems },
+      credentials: { type: 'array', items: credentialItems },
       findings: { type: 'array', items: findingItems },
     },
     output: {
       schema: {},
       render: (_a, v) => [{
         type: 'text',
-        text: `submitted → evidence ${v.evidence.length}, assets ${v.assets.length}, facts ${v.facts.length}, findings ${v.findings.length}`,
+        text: `submitted → evidence ${v.evidence.length}, assets ${v.assets.length}, credentials ${v.credentials.length}, facts ${v.facts.length}, findings ${v.findings.length}`,
       }],
     },
     execute: (args, exec) => withStore(exec, async (store, sid, a) => await store.submit(sid, a), args),
@@ -255,7 +295,10 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     execute: (_args, exec) => withStore(exec, async (store) => await store.listEngagements() as unknown as Record<string, unknown>, {} as Record<string, never>),
   })
 
-  return [addGoal, addIntent, addEvidence, addFact, addAsset, addFinding, submit, state, graph, report, engagements]
+  return [
+    addGoal, addIntent, addEvidence, addFact, addAsset, addFinding,
+    addCredential, submit, state, graph, report, engagements,
+  ]
 }
 
 function reportDeferredNotice(): { content: { type: 'text'; text: string }[] } {
@@ -279,6 +322,7 @@ async function jsonReport(store: import('./store.js').EngagementStore, sid: stri
     assets: Object.fromEntries(records.assets),
     findings: Object.fromEntries(records.findings),
     evidence: Object.fromEntries([...evById].map(([id, e]) => [id, e])),
+    credentials: store.maskedCredentials(sid),
   }
 }
 
@@ -306,9 +350,17 @@ async function markdownReport(
   const c = store.counts(sid)
   lines.push('## 概览 / Overview')
   lines.push('')
-  lines.push(`| intents | facts | assets | findings | evidence |`)
-  lines.push(`|---|---|---|---|---|`)
-  lines.push(`| ${c.intents} | ${c.facts} | ${c.assets} | ${c.findings} | ${c.evidence} |`)
+  lines.push(`| intents | facts | assets | findings | evidence | credentials |`)
+  lines.push(`|---|---|---|---|---|---|`)
+  lines.push(`| ${c.intents} | ${c.facts} | ${c.assets} | ${c.findings} | ${c.evidence} | ${c.credentials} |`)
+  lines.push('')
+
+  const bySeverity = new Map<string, number>()
+  for (const [, f] of r.findings) bySeverity.set(f.severity, (bySeverity.get(f.severity) ?? 0) + 1)
+  lines.push(
+    `严重度分布 / Severity: ` +
+    SEVERITIES.map((s) => `${s} ${bySeverity.get(s) ?? 0}`).join(' · '),
+  )
   lines.push('')
 
   lines.push('## 探索链路 / Exploration chain')
@@ -350,6 +402,12 @@ async function markdownReport(
       lines.push(`### [${f.severity.toUpperCase()}] ${f.title} (\`${id}\`)`)
       lines.push('', f.description)
       if (f.affectedAssetId !== undefined) lines.push('', `- 受影响资产 / Affected asset: \`${f.affectedAssetId}\``)
+      if (f.cvssVector !== undefined && f.cvssScore !== undefined) {
+        lines.push(`- CVSS v3.1: **${f.cvssScore}** \`${f.cvssVector}\``)
+      }
+      if (f.techniqueIds !== undefined && f.techniqueIds.length > 0) {
+        lines.push(`- MITRE ATT&CK: ${f.techniqueIds.map((t) => `\`${t}\``).join(', ')}`)
+      }
       lines.push('', '**复现步骤 / Reproduction**')
       f.reproducibleSteps.forEach((step, i) => lines.push(`${i + 1}. ${step}`))
       if (f.evidenceIds.length > 0) lines.push('', `- 证据 / Evidence: ${f.evidenceIds.map((e) => `\`${e}\``).join(', ')}`)
@@ -357,6 +415,34 @@ async function markdownReport(
       lines.push('')
     }
   }
+
+  lines.push('## 凭据 / Credentials')
+  lines.push('')
+  if (r.credentials.length === 0) lines.push('(none)')
+  else {
+    lines.push('| id | kind | username | target | asset | status | secret |')
+    lines.push('|---|---|---|---|---|---|---|')
+    for (const [id, cr] of r.credentials) {
+      lines.push(
+        `| \`${id}\` | ${cr.kind} | ${cr.username ?? ''} | ${cr.target ?? ''} | ${cr.assetId ?? ''} | ${cr.status} | ${maskSecret(cr.secret)} |`,
+      )
+    }
+  }
+  lines.push('')
+
+  lines.push('## 时间线 / Timeline')
+  lines.push('')
+  type TimelineEntry = { at: number; line: string }
+  const timeline: TimelineEntry[] = []
+  for (const [id, i] of r.intents) timeline.push({ at: i.createdAt, line: `\`${id}\` 意图 / intent — ${i.title}` })
+  for (const [id, a] of r.assets) timeline.push({ at: a.createdAt, line: `\`${id}\` 资产 / asset — ${a.type} ${a.value}` })
+  for (const [id, f] of r.facts) timeline.push({ at: f.createdAt, line: `\`${id}\` 事实 / fact — ${f.detail.slice(0, 120)}` })
+  for (const [id, cr] of r.credentials) timeline.push({ at: cr.createdAt, line: `\`${id}\` 凭据 / credential — ${cr.kind} (${maskSecret(cr.secret)})` })
+  for (const [id, f] of r.findings) timeline.push({ at: f.createdAt, line: `\`${id}\` 漏洞 / finding — [${f.severity.toUpperCase()}] ${f.title}` })
+  timeline.sort((a, b) => a.at - b.at)
+  if (timeline.length === 0) lines.push('(none)')
+  else for (const entry of timeline) lines.push(`- ${new Date(entry.at).toISOString()} — ${entry.line}`)
+  lines.push('')
 
   if (includeEvidence && r.evidence.length > 0) {
     lines.push('## 附录：证据 / Appendix: Evidence')

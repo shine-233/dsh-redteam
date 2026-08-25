@@ -13,6 +13,7 @@
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type {
   AssetRecord,
+  CredentialRecord,
   EdgeRelation,
   EngagementCounts,
   EvidenceKind,
@@ -29,12 +30,15 @@ import type {
 } from './types.js'
 import {
   assetSchema,
+  credentialSchema,
   evidenceSchema,
   factSchema,
   findingSchema,
   goalSchema,
   intentSchema,
 } from './spec.js'
+import { ATTACK_TECHNIQUE_RE, scoreVector, validTechniqueIds } from './cvss.js'
+import { maskSecret } from './secrets.js'
 
 /** Machine-tagged store failure surfaced verbatim to the calling tool. */
 export class StoreError extends Error {
@@ -60,6 +64,7 @@ export interface NewFact {
   kind?: string
   target?: string
   confidence?: number
+  phase?: import('./types.js').Phase
   evidenceIds?: string[]
 }
 
@@ -79,6 +84,19 @@ export interface NewFinding {
   affectedAssetId?: string
   evidenceIds?: string[]
   remediation?: string
+  techniqueIds?: string[]
+  /** CVSS v3.1 base vector; score derived automatically when it parses. */
+  cvssVector?: string
+}
+
+export interface NewCredential {
+  kind: import('./types.js').CredentialKind
+  secret: string
+  username?: string
+  target?: string
+  assetId?: string
+  status?: import('./types.js').CredentialStatus
+  notes?: string
 }
 
 export interface SubmitBatch {
@@ -87,6 +105,7 @@ export interface SubmitBatch {
   facts?: NewFact[]
   assets?: NewAsset[]
   findings?: NewFinding[]
+  credentials?: NewCredential[]
 }
 
 export interface SubmitResult {
@@ -95,9 +114,11 @@ export interface SubmitResult {
   facts: string[]
   assets: string[]
   findings: string[]
+  credentials: string[]
 }
 
-type RecordTable = 'goals' | 'intents' | 'facts' | 'assets' | 'findings' | 'evidence'
+type RecordTable =
+  | 'goals' | 'intents' | 'facts' | 'assets' | 'findings' | 'evidence' | 'credentials'
 
 const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   intents: 'intent',
@@ -105,6 +126,7 @@ const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   assets: 'asset',
   findings: 'finding',
   evidence: 'ev',
+  credentials: 'cred',
 }
 
 interface Sessioned {
@@ -207,7 +229,11 @@ export class EngagementStore {
     return found as (GoalRecord & { id: string }) | undefined
   }
 
-  async addIntent(sessionId: string, input: { title: string; rationale?: string }): Promise<string> {
+  async addIntent(sessionId: string, input: {
+    title: string
+    rationale?: string
+    phase?: import('./types.js').Phase
+  }): Promise<string> {
     const goal = this.requireActiveGoal(sessionId)
     const id = this.nextId('intents', sessionId)
     const parsed = intentSchema.parse({
@@ -215,6 +241,7 @@ export class EngagementStore {
       goalId: goal.id,
       title: input.title,
       rationale: input.rationale ?? '',
+      ...(input.phase !== undefined ? { phase: input.phase } : {}),
       createdAt: Date.now(),
     })
     await this.put('intents', id, parsed as IntentRecord)
@@ -247,6 +274,7 @@ export class EngagementStore {
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
       ...(input.target !== undefined ? { target: input.target } : {}),
       ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
+      ...(input.phase !== undefined ? { phase: input.phase } : {}),
       evidenceIds: [...(input.evidenceIds ?? [])],
       createdAt: Date.now(),
     })
@@ -279,6 +307,16 @@ export class EngagementStore {
     if (input.affectedAssetId !== undefined && input.affectedAssetId !== '') {
       this.requireAsset(sessionId, input.affectedAssetId)
     }
+    if (input.techniqueIds !== undefined && !validTechniqueIds(input.techniqueIds)) {
+      throw new StoreError(
+        'invalid-record',
+        `techniqueIds must be MITRE ATT&CK ids like 'T1110' or 'T1110.003': ${input.techniqueIds.filter((id) => !ATTACK_TECHNIQUE_RE.test(id)).join(', ')}`,
+      )
+    }
+    const score = input.cvssVector !== undefined ? scoreVector(input.cvssVector) : null
+    if (input.cvssVector !== undefined && score === null) {
+      throw new StoreError('invalid-record', `cvssVector is not a parseable CVSS v3.x base vector: '${input.cvssVector}'`)
+    }
     const id = this.nextId('findings', sessionId)
     const parsed = findingSchema.parse({
       sessionId,
@@ -292,9 +330,35 @@ export class EngagementStore {
         : {}),
       evidenceIds: [...(input.evidenceIds ?? [])],
       ...(input.remediation !== undefined ? { remediation: input.remediation } : {}),
+      ...(input.techniqueIds !== undefined && input.techniqueIds.length > 0
+        ? { techniqueIds: [...input.techniqueIds] }
+        : {}),
+      ...(score !== null ? { cvssVector: input.cvssVector, cvssScore: score } : {}),
       createdAt: Date.now(),
     })
     await this.put('findings', id, parsed as FindingRecord)
+    return id
+  }
+
+  /** Register credential material; the raw secret stays in storage only. */
+  async addCredential(sessionId: string, input: NewCredential): Promise<string> {
+    this.requireActiveGoal(sessionId)
+    if (input.assetId !== undefined && input.assetId !== '') {
+      this.requireAsset(sessionId, input.assetId)
+    }
+    const id = this.nextId('credentials', sessionId)
+    const parsed = credentialSchema.parse({
+      sessionId,
+      kind: input.kind,
+      secret: input.secret,
+      ...(input.username !== undefined ? { username: input.username } : {}),
+      ...(input.target !== undefined ? { target: input.target } : {}),
+      ...(input.assetId !== undefined && input.assetId !== '' ? { assetId: input.assetId } : {}),
+      status: input.status ?? 'unverified',
+      ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      createdAt: Date.now(),
+    })
+    await this.put('credentials', id, parsed as CredentialRecord)
     return id
   }
 
@@ -307,12 +371,15 @@ export class EngagementStore {
     this.requireActiveGoal(sessionId)
     this.requireIntent(sessionId, batch.intentId)
 
-    const result: SubmitResult = { intentId: batch.intentId, evidence: [], facts: [], assets: [], findings: [] }
+    const result: SubmitResult = { intentId: batch.intentId, evidence: [], facts: [], assets: [], findings: [], credentials: [] }
     for (const item of batch.evidence ?? []) {
       result.evidence.push(await this.addEvidence(sessionId, item))
     }
     for (const item of batch.assets ?? []) {
       result.assets.push(await this.addAsset(sessionId, item))
+    }
+    for (const item of batch.credentials ?? []) {
+      result.credentials.push(await this.addCredential(sessionId, item))
     }
     for (const item of batch.facts ?? []) {
       result.facts.push(await this.addFact(sessionId, batch.intentId, item))
@@ -374,6 +441,7 @@ export class EngagementStore {
       assets: this.rowsInWindow('assets', sessionId, w).length,
       findings: this.rowsInWindow('findings', sessionId, w).length,
       evidence: this.rowsInWindow('evidence', sessionId, w).length,
+      credentials: this.rowsInWindow('credentials', sessionId, w).length,
     }
   }
 
@@ -402,7 +470,7 @@ export class EngagementStore {
   } {
     const win = this.windowOf(sessionId)
     if (win === null) {
-      return { nodes: [], assets: [], edges: [], counts: { intents: 0, facts: 0, assets: 0, findings: 0, evidence: 0 } }
+      return { nodes: [], assets: [], edges: [], counts: { ...EMPTY_COUNTS } }
     }
     const goal = this.activeGoal(sessionId)!
     const nodes: RedteamViewNode[] = [{ id: goal.id, kind: 'goal', title: goal.objective }]
@@ -447,12 +515,28 @@ export class EngagementStore {
     const findings = win === null
       ? []
       : (this.rowsInWindow('findings', sessionId, win) as [string, FindingRecord][])
-        .map(([id, f]) => ({ id, intentId: f.intentId, title: f.title, severity: f.severity }))
+        .map(([id, f]) => ({
+          id,
+          intentId: f.intentId,
+          title: f.title,
+          severity: f.severity,
+          cvssScore: f.cvssScore ?? null,
+          techniqueIds: [...(f.techniqueIds ?? [])],
+        }))
+    const credentials = this.maskedCredentials(sessionId).map((c) => ({
+      id: c.id,
+      kind: c.kind as import('./types.js').CredentialKind,
+      username: c.username ?? null,
+      target: c.target ?? null,
+      assetId: c.assetId ?? null,
+      status: c.status as import('./types.js').CredentialStatus,
+    }))
     return {
       goal: goal === undefined ? null : { objective: goal.objective, authorization: goal.authorization },
       nodes: graph.nodes,
       assets: graph.assets,
       findings,
+      credentials,
       edges: graph.edges,
       counts: graph.counts,
     }
@@ -498,6 +582,7 @@ export class EngagementStore {
       assets: this.rowsInWindow('assets', sid, win).length,
       findings: this.rowsInWindow('findings', sid, win).length,
       evidence: this.rowsInWindow('evidence', sid, win).length,
+      credentials: this.rowsInWindow('credentials', sid, win).length,
     }
   }
 
@@ -509,10 +594,11 @@ export class EngagementStore {
     assets: [string, AssetRecord][]
     findings: [string, FindingRecord][]
     evidence: [string, EvidenceRecord][]
+    credentials: [string, CredentialRecord][]
   } {
     const win = this.windowOf(sessionId)
     if (win === null) {
-      return { goal: null, intents: [], facts: [], assets: [], findings: [], evidence: [] }
+      return { goal: null, intents: [], facts: [], assets: [], findings: [], evidence: [], credentials: [] }
     }
     return {
       goal: (({ id: _id, ...rest }) => rest)(this.activeGoal(sessionId)!),
@@ -521,10 +607,34 @@ export class EngagementStore {
       assets: this.rowsInWindow('assets', sessionId, win) as [string, AssetRecord][],
       findings: this.rowsInWindow('findings', sessionId, win) as [string, FindingRecord][],
       evidence: this.rowsInWindow('evidence', sessionId, win) as [string, EvidenceRecord][],
+      credentials: this.rowsInWindow('credentials', sessionId, win) as [string, CredentialRecord][],
     }
+  }
+
+  /** Credentials of the ACTIVE engagement, secrets masked for display. */
+  maskedCredentials(sessionId: string): { id: string; kind: string; username?: string; target?: string; assetId?: string; status: string; secretMasked: string }[] {
+    const r = this.engagementRecords(sessionId)
+    return r.credentials.map(([id, c]) => ({
+      id,
+      kind: c.kind,
+      ...(c.username !== undefined ? { username: c.username } : {}),
+      ...(c.target !== undefined ? { target: c.target } : {}),
+      ...(c.assetId !== undefined ? { assetId: c.assetId } : {}),
+      status: c.status,
+      secretMasked: maskSecret(c.secret),
+    }))
   }
 
   edgeRelations(): readonly EdgeRelation[] {
     return ['spawns', 'yields', 'proves', 'parent'] as const
   }
+}
+
+const EMPTY_COUNTS: EngagementCounts = {
+  intents: 0,
+  facts: 0,
+  assets: 0,
+  findings: 0,
+  evidence: 0,
+  credentials: 0,
 }

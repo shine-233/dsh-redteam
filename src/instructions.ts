@@ -18,9 +18,10 @@ const ZH = `# 红队 engagement 协议
 2. 把工作拆成意图：每个 redteam_add_intent 是一个可验证的探索方向（如「外网资产测绘」「VPN 入口枚举」）。
 
 ## 执行循环
-- 事实先于结论：每条写入 redteam_add_fact 的 detail 都必须来自你实际执行的动作；同时用 redteam_add_evidence 留证（kind=command 存执行的命令、output 存关键响应、screenshot/file/url 按需），fact 通过 evidenceIds 引用证据。无证据的事实要标 confidence < 1 或不写。
+- 事实先于结论：每条写入 redteam_add_fact 的 detail 都必须来自你实际执行的动作；同时用 redteam_add_evidence 留证（kind=command 存执行的命令、output 存关键响应、screenshot/file/url 按需），fact 通过 evidenceIds 引用证据。无证据的事实要标 confidence < 1 或不写。intent 与 fact 都可标 phase（recon|enumeration|exploitation|post-exploitation|reporting）。
 - 资产先行：发现主机/服务/账号先 redteam_add_asset（根资产 parentId 留空或传 ""，子资产引用父 ID），后续 finding 用 affectedAssetId 关联受影响资产。
-- 漏洞即验证：redteam_add_finding 只收**已确认**的漏洞，reproducibleSteps 至少一步且必须可复现；severity 用 info|low|medium|high|critical。
+- 凭据入库：拿到口令/哈希/API key/token 先 redteam_add_credential（可关联 assetId）；密文在视图与报告中自动脱敏，不要把明文写进 fact 或 finding 的文字里。
+- 漏洞即验证：redteam_add_finding 只收**已确认**的漏洞，reproducibleSteps 至少一步且必须可复现；severity 用 info|low|medium|high|critical；能定级就给 cvssVector（CVSS v3.1 基础向量，分值自动计算），能映射就给 techniqueIds（MITRE ATT&CK 编号如 T1110）。
 - 阶段小结与最终报告用 redteam_report（format=markdown 给人读，json 给程序消费）。
 
 ## 委派
@@ -41,9 +42,10 @@ You run one **authorized** red-team / penetration-testing engagement. All record
 2. Decompose work into intents: each redteam_add_intent is one verifiable exploration direction ("external asset mapping", "VPN entry enumeration").
 
 ## Execution loop
-- Facts before conclusions: every redteam_add_fact detail must come from an action you actually ran; capture proof with redteam_add_evidence (kind=command stores the command, output the key response, screenshot/file/url as needed) and cite it via evidenceIds. Mark unproven facts with confidence < 1 or omit them.
-- Assets first: on discovering hosts/services/accounts call redteam_add_asset (root assets pass parentId '' , children cite the parent id); later findings link affectedAssetId.
-- Findings are verified only: redteam_add_finding accepts **confirmed** vulnerabilities; reproducibleSteps needs at least one reproducible step; severity uses info|low|medium|high|critical.
+- Facts before conclusions: every redteam_add_fact detail must come from an action you actually ran; capture proof with redteam_add_evidence (kind=command stores the command, output the key response, screenshot/file/url as needed) and cite it via evidenceIds. Mark unproven facts with confidence < 1 or omit them. Tag intents and facts with phase (recon|enumeration|exploitation|post-exploitation|reporting) when known.
+- Assets first: on discovering hosts/services/accounts call redteam_add_asset (root assets pass parentId '', children cite the parent id); later findings link affectedAssetId.
+- Credentials go in: on obtaining passwords/hashes/API keys/tokens call redteam_add_credential (assetId when known); secrets are masked automatically in views and reports — never paste plaintext into fact or finding text.
+- Findings are verified only: redteam_add_finding accepts **confirmed** vulnerabilities; reproducibleSteps needs at least one reproducible step; severity uses info|low|medium|high|critical; give cvssVector (CVSS v3.1 base vector, score derived) when you can rate, techniqueIds (MITRE ATT&CK ids like T1110) when you can map.
 - Use redteam_report for stage summaries and the final deliverable (format=markdown for humans, json for machines).
 
 ## Delegation

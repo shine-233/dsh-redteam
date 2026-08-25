@@ -6,10 +6,16 @@
 
 ## 安装
 
+### 从 Release 安装
+
+```sh
+dsh plugin --profile web add https://github.com/shine-233/dsh-redteam/releases/latest/download/dsh-redteam.tar.gz
+```
+
 ### 从本地文件安装
 
 ```sh
-dsh plugin --profile web add file:C:\path\to\dsh-redteam-0.1.0.tgz
+dsh plugin --profile web add file:C:\path\to\dsh-redteam-0.2.0.tgz
 ```
 
 重启 dsh 后，在新会话中选择自动注册的「红队模式」预设。
@@ -20,18 +26,23 @@ dsh plugin --profile web add file:C:\path\to\dsh-redteam-0.1.0.tgz
 | --- | --- | --- |
 | 证据链 | 无 | `redteam_add_evidence`（command / output / screenshot / file / url），fact 通过 `evidenceIds` 引用 |
 | 跨会话历史 | 单会话作用域，无续跑 | `redteam_engagements` 列出全部历史；新 goal 关闭旧 engagement 但不删除任何记录 |
-| 报告格式 | Markdown 渲染 | Markdown（人读）/ JSON（程序消费）双格式 |
+| 报告格式 | Markdown 渲染 | Markdown（人读）/ JSON（程序消费）双格式，含时间线与严重度分布 |
 | 协议语言 | 中文 | `language: 'zh' \| 'en'` 双语配置 |
 | 边存储 | edges 表显式存边 | 边从引用（intent.goalId / fact.intentId / finding.intentId / asset.parentId）读取时派生，记录不可能悬空 |
+| CVSS 定级 | 无 | finding 给 `cvssVector`（CVSS v3.1 基础向量）即按 FIRST 规范自动计算分值 |
+| MITRE ATT&CK | 无 | finding 可映射 `techniqueIds`（如 T1110.003），写入时校验格式 |
+| Kill-chain 阶段 | 无 | intent / fact 可标 phase（recon / enumeration / exploitation / post-exploitation / reporting） |
+| 凭据追踪 | 无 | `redteam_add_credential` 登记口令/哈希/API key/token，Web 视图与报告自动脱敏，明文只进本地库 |
 
 ## 架构速览
 
-- **领域模型**（`src/spec.ts`）：storage domain `redteam`（version 1）——`goals` / `intents` / `facts` / `assets` / `findings` / `evidence` 六张表。goal 按会话键控，其余记录 id 为 `<kind>-<n>`（按会话计数，重开 goal 归零）。
+- **领域模型**（`src/spec.ts`）：storage domain `redteam`（version 1，增量演进兼容旧库）——`goals` / `intents` / `facts` / `assets` / `findings` / `evidence` / `credentials` 七张表。goal 按会话键控，其余记录 id 为 `<kind>-<n>`（按会话计数，重开 goal 归零）。
 - **确定性 id**（`src/store.ts`）：工具返回 id 供模型跨调用引用；会话投影从日志纯重放同一张图。
-- **工具**（`src/tools.ts`）：11 个 —— `redteam_add_goal`（authorization 必填，重开 goal 关闭旧 engagement）/ `redteam_add_intent` / `redteam_add_evidence` / `redteam_add_fact`（evidenceIds 引用）/ `redteam_add_asset`（parentId 留空为根资产）/ `redteam_add_finding`(reproducibleSteps 必填至少一步) / `redteam_submit`（子 agent 分批直写指定父 intent，批内先 evidence 后 facts/findings）/ `redteam_state` / `redteam_graph` / `redteam_report`（markdown|json）/ `redteam_engagements`（历史列表）。
-- **会话投影**（`src/projection.ts`）：折叠已日志化的 `redteam_*` 调用为 `{ goal, nodes, assets, counts }`，镜像 store 的引用拒绝。
-- **Web 标签页**（`src/client/`）：按会话注册（当前会话或祖先链含 redteam 预设即显示）；四个子标签——探索链路（关系图）、漏洞（严重度/复现步骤/影响资产）、资产、报告（Markdown 渲染、复制与保存）。
-- **协议**（`src/instructions.ts`）：系统提示词段 `redteam:protocol`（order 50），双语逐字撰写而非运行时翻译；要求授权留痕、事实必留证、漏洞必可复现。
+- **工具**（`src/tools.ts`）：12 个 —— `redteam_add_goal`（authorization 必填，重开 goal 关闭旧 engagement）/ `redteam_add_intent`（可选 phase）/ `redteam_add_evidence` / `redteam_add_fact`（evidenceIds 引用、可选 phase）/ `redteam_add_asset`（parentId 留空为根资产）/ `redteam_add_finding`（reproducibleSteps 必填至少一步；cvssVector 自动算分；techniqueIds 校验）/ `redteam_add_credential`（凭据登记，脱敏展示）/ `redteam_submit`（子 agent 分批直写指定父 intent）/ `redteam_state` / `redteam_graph` / `redteam_report`（markdown|json）/ `redteam_engagements`（历史列表）。
+- **CVSS 计算**（`src/cvss.ts`）：FIRST CVSS v3.1 基础分实现（含官方 roundup 防浮点漂移），20 个参考向量测试覆盖。
+- **会话投影**（`src/projection.ts`）：折叠已日志化的 `redteam_*` 调用为 `{ goal, nodes, assets, findings, credentials, counts }`，镜像 store 的引用拒绝；密文永不进入投影。
+- **Web 标签页**（`src/client/`）：按会话注册（当前会话或祖先链含 redteam 预设即显示）；五个子标签——探索链路（关系图）、漏洞（严重度/CVSS 分值/ATT&CK 技术标签）、资产、凭据（脱敏列表）、报告（Markdown 渲染、复制与保存）。
+- **协议**（`src/instructions.ts`）：系统提示词段 `redteam:protocol`（order 50），双语逐字撰写而非运行时翻译；要求授权留痕、事实必留证、漏洞必可复现、凭据不落明文。
 
 ## 已知边界
 

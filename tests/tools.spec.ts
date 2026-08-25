@@ -113,7 +113,8 @@ describe('redteam tools', () => {
         intentId: 'intent-1',
         evidence: [{ kind: 'screenshot', content: '/tmp/shot.png', label: 'login page' }],
         assets: [{ type: 'host', value: '10.0.0.7' }],
-        facts: [{ detail: 'ssh exposed', evidenceIds: ['ev-1'] }],
+        credentials: [{ kind: 'password', secret: 'Sup3rS3cretValue!', username: 'admin', assetId: 'asset-1' }],
+        facts: [{ detail: 'ssh exposed', phase: 'exploitation', evidenceIds: ['ev-1'] }],
         findings: [{
           title: 'default creds',
           severity: 'critical',
@@ -130,9 +131,89 @@ describe('redteam tools', () => {
       intentId: 'intent-1',
       evidence: ['ev-1'],
       assets: ['asset-1'],
+      credentials: ['cred-1'],
       facts: ['fact-1'],
       findings: ['finding-1'],
     })
     expect(exec.events.filter((e) => e.event.startsWith('redteam'))).toHaveLength(0)
+
+    const masked = store.maskedCredentials('session-1')
+    expect(masked[0]!.secretMasked).not.toContain('S3cret')
+    expect(JSON.stringify(store.projection('session-1').credentials)).not.toContain('S3cret')
+  })
+
+  it('derives cvssScore from cvssVector and rejects bad ATT&CK ids', async () => {
+    const { registry, store } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'o', authorization: 'a' }, exec)
+    await registry.call('redteam_add_intent', { title: 'i' }, exec)
+
+    const scored = await registry.call(
+      'redteam_add_finding',
+      {
+        intentId: 'intent-1',
+        title: 'rce',
+        severity: 'critical',
+        description: '',
+        reproducibleSteps: ['step'],
+        cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H',
+        techniqueIds: ['T1505.003'],
+      },
+      exec,
+    )
+    expect(scored.ok).toBe(true)
+    const records = store.engagementRecords('session-1')
+    expect(records.findings[0]![1].cvssScore).toBe(9.8)
+    expect(records.findings[0]![1].techniqueIds).toEqual(['T1505.003'])
+
+    const badTech = await registry.call(
+      'redteam_add_finding',
+      {
+        intentId: 'intent-1', title: 'x', severity: 'low', description: '',
+        reproducibleSteps: ['s'], techniqueIds: ['NOT-MITRE'],
+      },
+      exec,
+    )
+    expect(badTech.ok).toBe(false)
+
+    const badVector = await registry.call(
+      'redteam_add_finding',
+      {
+        intentId: 'intent-1', title: 'y', severity: 'low', description: '',
+        reproducibleSteps: ['s'], cvssVector: 'AV:ZZZ',
+      },
+      exec,
+    )
+    expect(badVector.ok).toBe(false)
+  })
+
+  it('stores credentials through the dedicated tool with masking at every read surface', async () => {
+    const { registry, store } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'o', authorization: 'a' }, exec)
+    await registry.call('redteam_add_asset', { type: 'host', value: '10.0.0.7' }, exec)
+
+    const cred = await registry.call(
+      'redteam_add_credential',
+      { kind: 'password', secret: 'Sup3rS3cretValue!', username: 'admin', assetId: 'asset-1' },
+      exec,
+    )
+    expect(cred.ok).toBe(true)
+    expect(cred.value).toEqual({ credentialId: 'cred-1' })
+
+    const badRef = await registry.call(
+      'redteam_add_credential',
+      { kind: 'api-key', secret: 'k', assetId: 'asset-nope' },
+      exec,
+    )
+    expect(badRef.ok).toBe(false)
+
+    const masked = store.maskedCredentials('session-1')
+    expect(masked[0]!.secretMasked).toBe('Su••••e!')
+    expect(masked[0]!).toMatchObject({ username: 'admin', status: 'unverified' })
+
+    const projection = store.projection('session-1')
+    expect(projection.credentials[0]).toMatchObject({ id: 'cred-1', username: 'admin' })
+    expect(JSON.stringify(projection)).not.toContain('S3cret')
   })
 })

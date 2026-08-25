@@ -8,6 +8,7 @@ import { useState } from 'react'
 import type { RedteamProjection } from '../types.js'
 import { ChainGraph } from './ChainGraph.js'
 import { FindingsView } from './FindingsView.js'
+import { CredentialsView } from './CredentialsView.js'
 import { AssetsView } from './AssetsView.js'
 import { ReportView } from './ReportView.js'
 
@@ -20,6 +21,7 @@ const TABS = [
   { id: 'chain', label: '链路' },
   { id: 'findings', label: '漏洞' },
   { id: 'assets', label: '资产' },
+  { id: 'credentials', label: '凭据' },
   { id: 'report', label: '报告' },
 ] as const
 
@@ -71,6 +73,16 @@ const styles = `
 .rt-md code { background:var(--dsw-surface,#1b2026); padding:1px 5px; border-radius:4px; }
 .rt-md pre { background:var(--dsw-surface,#1b2026); padding:10px; border-radius:8px; overflow:auto; }
 .rt-hint { color:var(--dsw-text-secondary,#8b95a1); }
+.rt-cvss { margin-left:8px; padding:1px 7px; border-radius:10px; font-size:11px; font-weight:700; }
+.rt-cvss-crit { background:rgba(255,92,92,.18); color:#ff5c5c; }
+.rt-cvss-high { background:rgba(255,147,80,.16); color:#ff9350; }
+.rt-cvss-mid { background:rgba(224,192,78,.14); color:#e0c04e; }
+.rt-techs { margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; }
+.rt-tech { background:var(--dsw-surface,#1b2026); border:1px solid var(--dsw-border,#2a3138);
+  border-radius:4px; padding:1px 6px; font-size:11px; color:var(--dsw-text-secondary,#8b95a1); }
+.rt-cred-status-valid { color:#7fb069; }
+.rt-cred-status-invalid { color:#ff5c5c; }
+.rt-cred-status-unverified { color:var(--dsw-text-secondary,#8b95a1); }
 `
 
 export function RedteamView(props: RedteamViewProps): React.ReactNode {
@@ -100,6 +112,7 @@ export function RedteamView(props: RedteamViewProps): React.ReactNode {
         <span>事实<b>{counts.facts}</b></span>
         <span>资产<b>{counts.assets}</b></span>
         <span>漏洞<b>{counts.findings}</b></span>
+        <span>凭据<b>{counts.credentials}</b></span>
         <span>证据<b>{counts.evidence}</b></span>
       </div>
       <div className="rt-tabs" role="tablist">

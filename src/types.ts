@@ -11,6 +11,24 @@ export type Severity = (typeof SEVERITIES)[number]
 export const EVIDENCE_KINDS = ['command', 'output', 'screenshot', 'file', 'url', 'note'] as const
 export type EvidenceKind = (typeof EVIDENCE_KINDS)[number]
 
+/** Kill-chain phases for intents/facts (PTES-flavoured, coarse on purpose). */
+export const PHASES = [
+  'recon',
+  'enumeration',
+  'exploitation',
+  'post-exploitation',
+  'reporting',
+] as const
+export type Phase = (typeof PHASES)[number]
+
+/** Credential material kinds the tracker accepts. */
+export const CREDENTIAL_KINDS = ['password', 'hash', 'api-key', 'token', 'ssh-key', 'other'] as const
+export type CredentialKind = (typeof CREDENTIAL_KINDS)[number]
+
+/** Verification lifecycle of one credential. */
+export const CREDENTIAL_STATUSES = ['unverified', 'valid', 'invalid'] as const
+export type CredentialStatus = (typeof CREDENTIAL_STATUSES)[number]
+
 export interface GoalRecord {
   readonly sessionId: string
   readonly objective: string
@@ -26,6 +44,7 @@ export interface IntentRecord {
   readonly goalId: string
   readonly title: string
   readonly rationale: string
+  readonly phase?: Phase | undefined
   readonly createdAt: number
 }
 
@@ -37,6 +56,7 @@ export interface FactRecord {
   readonly target?: string | undefined
   /** 0–1 confidence the fact is confirmed; omitted means asserted only. */
   readonly confidence?: number | undefined
+  readonly phase?: Phase | undefined
   readonly evidenceIds: readonly string[]
   readonly createdAt: number
 }
@@ -62,6 +82,11 @@ export interface FindingRecord {
   readonly affectedAssetId?: string | undefined
   readonly evidenceIds: readonly string[]
   readonly remediation?: string | undefined
+  /** MITRE ATT&CK technique ids (`T1110`, `T1110.003`). */
+  readonly techniqueIds?: readonly string[] | undefined
+  /** CVSS v3.1 base vector; `cvssScore` is derived at write time. */
+  readonly cvssVector?: string | undefined
+  readonly cvssScore?: number | undefined
   readonly createdAt: number
 }
 
@@ -70,6 +95,19 @@ export interface EvidenceRecord {
   readonly kind: EvidenceKind
   readonly label: string
   readonly content: string
+  readonly createdAt: number
+}
+
+/** Discovered credential material; `secret` never leaves the store unmasked. */
+export interface CredentialRecord {
+  readonly sessionId: string
+  readonly kind: CredentialKind
+  readonly secret: string
+  readonly username?: string | undefined
+  readonly target?: string | undefined
+  readonly assetId?: string | undefined
+  readonly status: CredentialStatus
+  readonly notes?: string | undefined
   readonly createdAt: number
 }
 
@@ -88,6 +126,7 @@ export interface EngagementCounts {
   readonly assets: number
   readonly findings: number
   readonly evidence: number
+  readonly credentials: number
 }
 
 /** Summary returned by `redteam_state`. */
@@ -117,6 +156,18 @@ export interface RedteamViewFinding {
   readonly intentId: string
   readonly title: string
   readonly severity: Severity
+  readonly cvssScore: number | null
+  readonly techniqueIds: readonly string[]
+}
+
+/** Credential as seen by the Web tab — masked, never the raw secret. */
+export interface RedteamViewCredential {
+  readonly id: string
+  readonly kind: CredentialKind
+  readonly username: string | null
+  readonly target: string | null
+  readonly assetId: string | null
+  readonly status: CredentialStatus
 }
 
 export interface RedteamProjection {
@@ -124,6 +175,7 @@ export interface RedteamProjection {
   readonly nodes: readonly RedteamViewNode[]
   readonly assets: readonly RedteamViewAsset[]
   readonly findings: readonly RedteamViewFinding[]
+  readonly credentials: readonly RedteamViewCredential[]
   readonly edges: readonly GraphEdge[]
   readonly counts: EngagementCounts
 }

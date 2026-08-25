@@ -23,10 +23,22 @@ export function FindingsView({ projection }: { projection: RedteamProjection }):
           <div className="rt-finding" key={finding.id}>
             <span className={`rt-sev ${finding.severity}`}>{finding.severity.toUpperCase()}</span>
             <strong>{finding.title}</strong>
+            {finding.cvssScore !== null && (
+              <span className={`rt-cvss rt-cvss-${finding.cvssScore >= 9 ? 'crit' : finding.cvssScore >= 7 ? 'high' : 'mid'}`}>
+                CVSS {finding.cvssScore.toFixed(1)}
+              </span>
+            )}
             <div className="rt-meta">
               <code>{finding.id}</code>
               {intent !== undefined ? <> · 由意图「{intent.title}」证实</> : null}
             </div>
+            {finding.techniqueIds.length > 0 && (
+              <div className="rt-techs">
+                {finding.techniqueIds.map((t) => (
+                  <span className="rt-tech" key={t}>{t}</span>
+                ))}
+              </div>
+            )}
           </div>
         )
       })}

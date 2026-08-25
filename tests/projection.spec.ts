@@ -107,4 +107,30 @@ describe('redteam projection', () => {
     expect(state.assets.map((a) => a.id)).toEqual(['asset-1'])
     expect(state.findings[0]).toMatchObject({ id: 'finding-1', severity: 'low', intentId: 'intent-1' })
   })
+
+  it('folds credentials without their secrets and derives finding cvss scores', () => {
+    let state = initState()
+    state = fold(state, call(1, 'redteam_add_goal', { objective: 'o', authorization: 'a' }))
+    state = fold(state, result(2, 'c1'))
+    const before = state
+    state = fold(state, call(3, 'redteam_add_credential', {
+      kind: 'password', secret: 'Sup3rS3cretValue!', username: 'admin',
+    }))
+    expect(state.credentials).toEqual([{
+      id: 'cred-1', kind: 'password', username: 'admin', target: null, assetId: null,
+      status: 'unverified',
+    }])
+    // The raw secret never enters the fold state.
+    expect(JSON.stringify(state)).not.toContain('S3cret')
+    expect(before.credentials).toHaveLength(0)
+
+    state = fold(state, call(4, 'redteam_add_finding', {
+      intentId: '', title: 'rce', severity: 'critical', description: '',
+      reproducibleSteps: ['s'],
+      cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H',
+      techniqueIds: ['T1505.003', 'bogus'],
+    }))
+    expect(state.findings[0]).toMatchObject({ cvssScore: 9.8, techniqueIds: ['T1505.003'] })
+    expect(state.counts.credentials).toBe(1)
+  })
 })
