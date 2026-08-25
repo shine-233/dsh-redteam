@@ -29,6 +29,7 @@ import {
   ARTIFACT_KINDS,
   CREDENTIAL_KINDS,
   CREDENTIAL_STATUSES,
+  DETECTION_OUTCOMES,
   EVIDENCE_KINDS,
   FINDING_STATUSES,
   GOAL_OUTCOMES,
@@ -37,7 +38,7 @@ import {
   PHASES,
   SEVERITIES,
 } from './types.js'
-import { ATTACK_TECHNIQUE_RE, OWASP_CATEGORY_RE } from './cvss.js'
+import { ATTACK_TECHNIQUE_RE, CWE_ID_RE, OWASP_CATEGORY_RE } from './cvss.js'
 
 export const REDTEAM_DOMAIN_VERSION = 1
 
@@ -64,6 +65,7 @@ export const intentSchema = z.object({
   derivedFrom: z.array(z.string()).optional(),
   dependsOn: z.array(z.string()).optional(),
   assetIds: z.array(z.string()).optional(),
+  techniqueIds: z.array(z.string().regex(ATTACK_TECHNIQUE_RE)).optional(),
   createdAt: isoTime,
 })
 
@@ -101,6 +103,8 @@ export const findingSchema = z.object({
   remediation: z.string().optional(),
   techniqueIds: z.array(z.string().regex(ATTACK_TECHNIQUE_RE)).optional(),
   owaspIds: z.array(z.string().regex(OWASP_CATEGORY_RE)).optional(),
+  cweIds: z.array(z.string().regex(CWE_ID_RE)).optional(),
+  detected: z.enum(DETECTION_OUTCOMES).optional(),
   cvssVector: z.string().optional(),
   cvssScore: z.number().min(0).max(10).optional(),
   status: z.enum(FINDING_STATUSES).optional(),

@@ -47,6 +47,9 @@ dsh plugin --profile web add file:C:\path\to\dsh-redteam-0.3.0.tgz
 | 收尾后可读 | 无对照 | `redteam_close_goal` 之后 state/graph/report 仍完整可读（最终报告工作流） |
 | 人工转向黑板 | Hint 原语（Cairn 黑板架构） | `redteam_add_hint` 把用户/客户/操作者的方向性指令原文入档（user/operator/client 来源标注），Web 头部指示条 + 报告「人工转向」段 |
 | 漏洞去重标记 | issue dedup（Dradis 类平台） | `redteam_add_finding duplicateOf` 标记重复漏洞（子代理双报场景），报告标注 dup of |
+| 检测状态追踪 | VECTR 红/蓝对抗度量 | finding/retest 记录蓝队反馈 undetected/logged/alerted/prevented，报告输出防御触达率 |
+| ATT&CK 技术覆盖 | VECTR/Navigator 覆盖矩阵 | intent 标计划技术、finding 证实用技术，state/报告输出 proven vs attempted-only 覆盖摘要 |
+| CWE 弱点映射 | PwnDoc 漏洞库标配 | finding 可挂 `cweIds`（CWE-79 格式），写入校验，SARIF tags 携带 |
 
 ## 架构速览
 

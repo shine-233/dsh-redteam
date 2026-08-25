@@ -447,4 +447,46 @@ describe('EngagementStore', () => {
     expect(projection.hints.map((h) => h.source)).toEqual(['client', 'user'])
     expect(h1).toBe('hint-1')
   })
+
+  it('tracks ATT&CK technique coverage and detection outcomes (VECTR-style)', async () => {
+    const store = await makeStore()
+    await opened(store)
+
+    // Intent-level planned coverage.
+    const i1 = await store.addIntent(SID, {
+      title: 'brute force', techniqueIds: ['T1110', 'T1110.003'],
+    })
+    const i2 = await store.addIntent(SID, { title: 'recon', techniqueIds: ['T1595'] })
+    await store.addIntent(SID, { title: 'bad tech', techniqueIds: ['X999'] })
+      .catch(() => undefined) // invalid ids rejected; ignore result
+
+    // Proven coverage via a finding that also carries blue-team feedback + CWE.
+    await store.addFinding(SID, i1, {
+      title: 'cred stuffing worked',
+      severity: 'high',
+      description: '',
+      reproducibleSteps: ['hydra'],
+      techniqueIds: ['T1110'],
+      cweIds: ['CWE-307'],
+      detected: 'undetected',
+    })
+
+    // Invalid CWE / detection values rejected.
+    await expect(store.addFinding(SID, i2, {
+      title: 'x', severity: 'low', description: '', reproducibleSteps: ['s'],
+      cweIds: ['CWE79'],
+    })).rejects.toMatchObject({ code: 'invalid-record' })
+    await expect(store.addFinding(SID, i2, {
+      title: 'y', severity: 'low', description: '', reproducibleSteps: ['s'],
+      detected: 'maybe' as never,
+    })).rejects.toMatchObject({ code: 'invalid-record' })
+
+    const techniques = store.state(SID).techniques
+    expect(techniques.proven).toEqual(['T1110'])
+    expect(techniques.attempted.sort()).toEqual(['T1110', 'T1110.003', 'T1595'])
+
+    // Detection feedback updatable via retest (post-action learning).
+    await store.retestFinding(SID, 'finding-1', { outcome: 'still-vulnerable', detected: 'alerted' })
+    expect(store.engagementRecords(SID).findings[0]![1].detected).toBe('alerted')
+  })
 })

@@ -30,7 +30,7 @@ import type {
   RedteamViewNode,
   Severity,
 } from './types.js'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, INTENT_STATUSES } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, INTENT_STATUSES } from './types.js'
 import {
   artifactSchema,
   assetSchema,
@@ -42,7 +42,7 @@ import {
   hintSchema,
   intentSchema,
 } from './spec.js'
-import { ATTACK_TECHNIQUE_RE, OWASP_CATEGORY_RE, scoreVector, validOwaspIds, validTechniqueIds } from './cvss.js'
+import { ATTACK_TECHNIQUE_RE, CWE_ID_RE, OWASP_CATEGORY_RE, scoreVector, validCweIds, validOwaspIds, validTechniqueIds } from './cvss.js'
 import { maskSecret } from './secrets.js'
 
 /** Machine-tagged store failure surfaced verbatim to the calling tool. */
@@ -92,6 +92,9 @@ export interface NewFinding {
   remediation?: string
   techniqueIds?: string[]
   owaspIds?: string[]
+  cweIds?: string[]
+  /** Blue-team feedback on this action (VECTR-style). */
+  detected?: import('./types.js').DetectionOutcome
   /** CVSS v3.1 base vector; score derived automatically when it parses. */
   cvssVector?: string
   /** Mark this finding as a duplicate of an earlier one (dedup). */
@@ -312,8 +315,13 @@ export class EngagementStore {
     dependsOn?: string[]
     /** Assets this direction anchors to (must exist). */
     assetIds?: string[]
+    /** ATT&CK techniques this direction plans to exercise. */
+    techniqueIds?: string[]
   }): Promise<string> {
     const goal = this.requireActiveGoal(sessionId)
+    if (input.techniqueIds !== undefined && !validTechniqueIds(input.techniqueIds)) {
+      throw new StoreError('invalid-record', `techniqueIds must be MITRE ATT&CK ids: ${input.techniqueIds.join(', ')}`)
+    }
     for (const factId of input.derivedFrom ?? []) {
       if (this.get<FactRecord>('facts', sessionId, factId) === undefined) {
         throw new StoreError('missing-ref', `fact '${factId}' does not exist in this session`)
@@ -344,6 +352,9 @@ export class EngagementStore {
         : {}),
       ...(input.assetIds !== undefined && input.assetIds.length > 0
         ? { assetIds: [...input.assetIds] }
+        : {}),
+      ...(input.techniqueIds !== undefined && input.techniqueIds.length > 0
+        ? { techniqueIds: [...input.techniqueIds] }
         : {}),
       createdAt: Date.now(),
     })
@@ -423,6 +434,18 @@ export class EngagementStore {
         `owaspIds must be OWASP Top 10 categories like 'A01:2021' or 'A05:2017': ${input.owaspIds.filter((id) => !OWASP_CATEGORY_RE.test(id)).join(', ')}`,
       )
     }
+    if (input.cweIds !== undefined && !validCweIds(input.cweIds)) {
+      throw new StoreError(
+        'invalid-record',
+        `cweIds must be CWE weakness ids like 'CWE-79': ${input.cweIds.filter((id) => !CWE_ID_RE.test(id)).join(', ')}`,
+      )
+    }
+    if (
+      input.detected !== undefined
+      && !DETECTION_OUTCOMES.includes(input.detected)
+    ) {
+      throw new StoreError('invalid-record', `invalid detected outcome: '${input.detected}'`)
+    }
     const score = input.cvssVector !== undefined ? scoreVector(input.cvssVector) : null
     if (input.cvssVector !== undefined && score === null) {
       throw new StoreError('invalid-record', `cvssVector is not a parseable CVSS v3.x base vector: '${input.cvssVector}'`)
@@ -448,6 +471,10 @@ export class EngagementStore {
       ...(input.techniqueIds !== undefined && input.techniqueIds.length > 0
         ? { techniqueIds: [...input.techniqueIds] }
         : {}),
+      ...(input.cweIds !== undefined && input.cweIds.length > 0
+        ? { cweIds: [...input.cweIds] }
+        : {}),
+      ...(input.detected !== undefined ? { detected: input.detected } : {}),
       ...(score !== null ? { cvssVector: input.cvssVector, cvssScore: score } : {}),
       ...(input.duplicateOf !== undefined && input.duplicateOf !== ''
         ? { duplicateOf: input.duplicateOf }
@@ -560,6 +587,8 @@ export class EngagementStore {
     outcome: 'fixed' | 'still-vulnerable'
     notes?: string
     evidenceIds?: string[]
+    /** Blue-team feedback learned during/after the action (VECTR-style). */
+    detected?: import('./types.js').DetectionOutcome
   }): Promise<FindingRecord & { id: string }> {
     const existing = this.get<FindingRecord>('findings', sessionId, findingId)
     if (existing === undefined) {
@@ -573,8 +602,30 @@ export class EngagementStore {
       updated = { ...updated, status: 'confirmed', resolvedAt: undefined }
     }
     if (patch.notes !== undefined) updated = { ...updated, retestNotes: patch.notes }
+    if (patch.detected !== undefined) updated = { ...updated, detected: patch.detected }
     await this.put('findings', findingId, updated)
     return { ...updated, id: findingId }
+  }
+
+  /**
+   * ATT&CK technique coverage over the current engagement: `proven` =
+   * techniques behind confirmed findings; `attempted` = planned on intents
+   * or exercised without (yet) proving a finding.
+   */
+  techniqueCoverage(sessionId: string): { attempted: string[]; proven: string[] } {
+    const win = this.windowOf(sessionId)
+    if (win === null) return { attempted: [], proven: [] }
+    const proven = new Set<string>()
+    for (const [, finding] of this.rowsInWindow('findings', sessionId, win) as [string, FindingRecord][]) {
+      for (const t of finding.techniqueIds ?? []) proven.add(t)
+    }
+    const attempted = new Set<string>(proven)
+    for (const [, intent] of this.rowsInWindow('intents', sessionId, win) as [string, IntentRecord][]) {
+      for (const t of intent.techniqueIds ?? []) {
+        if (!proven.has(t)) attempted.add(t)
+      }
+    }
+    return { attempted: [...attempted], proven: [...proven] }
   }
 
   /** Verification transition on a credential (`valid` / `invalid` / reset). */
@@ -792,6 +843,7 @@ export class EngagementStore {
     openIntents: { id: string; title: string }[]
     progress: { active: number; done: number; blocked: number }
     coverage: { tested: string[]; untested: string[] }
+    techniques: { attempted: string[]; proven: string[] }
   } {
     const goal = this.currentGoal(sessionId)
     const win = this.windowOf(sessionId)
@@ -808,6 +860,7 @@ export class EngagementStore {
         .map(([id, record]) => ({ id, title: record.title })),
       progress,
       coverage: this.coverage(sessionId),
+      techniques: this.techniqueCoverage(sessionId),
     }
   }
 

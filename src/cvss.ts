@@ -110,10 +110,17 @@ export const ATTACK_TECHNIQUE_RE = /^T\d{4}(\.\d{3})?$/
 /** OWASP Top 10 category id for the 2017 or 2021 edition (`A01:2021`). */
 export const OWASP_CATEGORY_RE = /^A\d{2}:(2017|2021)$/
 
+/** MITRE CWE weakness id (`CWE-79`, `CWE-89`). */
+export const CWE_ID_RE = /^CWE-\d{1,4}$/
+
 export function validTechniqueIds(ids: readonly string[]): boolean {
   return ids.every((id) => ATTACK_TECHNIQUE_RE.test(id))
 }
 
 export function validOwaspIds(ids: readonly string[]): boolean {
   return ids.every((id) => OWASP_CATEGORY_RE.test(id))
+}
+
+export function validCweIds(ids: readonly string[]): boolean {
+  return ids.every((id) => CWE_ID_RE.test(id))
 }

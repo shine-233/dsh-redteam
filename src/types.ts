@@ -41,6 +41,13 @@ export type FindingStatus = (typeof FINDING_STATUSES)[number]
 export const GOAL_OUTCOMES = ['achieved', 'partial', 'not-achieved'] as const
 export type GoalOutcome = (typeof GOAL_OUTCOMES)[number]
 
+/**
+ * Blue-team feedback on a confirmed finding/action (VECTR-style): did the
+ * target's defenses notice?
+ */
+export const DETECTION_OUTCOMES = ['undetected', 'logged', 'alerted', 'prevented'] as const
+export type DetectionOutcome = (typeof DETECTION_OUTCOMES)[number]
+
 /** Kinds of deliverables produced by the engagement (PentAGI-style artifacts). */
 export const ARTIFACT_KINDS = [
   'file',
@@ -84,6 +91,8 @@ export interface IntentRecord {
   readonly dependsOn?: readonly string[] | undefined
   /** Assets this direction targets — the coverage anchor set. */
   readonly assetIds?: readonly string[] | undefined
+  /** ATT&CK techniques this direction plans to exercise (planned coverage). */
+  readonly techniqueIds?: readonly string[] | undefined
   readonly createdAt: number
 }
 
@@ -127,6 +136,10 @@ export interface FindingRecord {
   readonly techniqueIds?: readonly string[] | undefined
   /** OWASP Top 10 category ids (`A01:2021`, `A05:2017`). */
   readonly owaspIds?: readonly string[] | undefined
+  /** CWE weakness ids (`CWE-79`). */
+  readonly cweIds?: readonly string[] | undefined
+  /** Blue-team feedback: did defenses notice this action? */
+  readonly detected?: DetectionOutcome | undefined
   /** CVSS v3.1 base vector; `cvssScore` is derived at write time. */
   readonly cvssVector?: string | undefined
   readonly cvssScore?: number | undefined
@@ -220,6 +233,8 @@ export interface EngagementState {
   readonly progress: { active: number; done: number; blocked: number }
   /** Asset test coverage: assets touched by anchored intents/findings vs not. */
   readonly coverage: { tested: string[]; untested: string[] }
+  /** ATT&CK technique coverage: proven (findings) vs attempted-only (intents). */
+  readonly techniques: { attempted: string[]; proven: string[] }
 }
 
 /** Windowed view delivered to the Web tab via the session projection. */

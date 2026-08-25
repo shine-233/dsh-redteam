@@ -8,7 +8,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, PHASES, SEVERITIES } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, PHASES, SEVERITIES } from './types.js'
 import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, NewHint, SubmitResult } from './store.js'
 import { maskSecret } from './secrets.js'
 
@@ -83,6 +83,14 @@ const findingItems = {
     owaspIds: {
       type: 'array', items: { type: 'string' },
       description: "OWASP Top 10 categories, e.g. ['A01:2021','A05:2017'].",
+    },
+    cweIds: {
+      type: 'array', items: { type: 'string' },
+      description: "CWE weakness ids, e.g. ['CWE-79','CWE-89'].",
+    },
+    detected: {
+      type: 'string', enum: [...DETECTION_OUTCOMES],
+      description: 'Blue-team feedback (VECTR-style): did defenses notice? undetected/logged/alerted/prevented.',
     },
     cvssVector: {
       type: 'string',
@@ -166,6 +174,10 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       title: { type: 'string', required: true, description: 'Short direction title.' },
       rationale: { type: 'string', description: 'Why this direction matters.' },
       phase: { type: 'string', enum: [...PHASES], description: 'Kill-chain phase this direction serves.' },
+      techniqueIds: {
+        type: 'array', items: { type: 'string' },
+        description: "ATT&CK techniques this direction plans to exercise, e.g. ['T1110'] — feeds the technique coverage summary.",
+      },
       derivedFrom: {
         type: 'array', items: { type: 'string' },
         description: "Fact ids this direction was derived from, e.g. ['fact-3'].",
@@ -316,6 +328,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       findingId: { type: 'string', required: true },
       outcome: { type: 'string', required: true, enum: ['fixed', 'still-vulnerable'] },
       notes: { type: 'string', description: 'Retest observation (what was tried this round).' },
+      detected: { type: 'string', enum: [...DETECTION_OUTCOMES], description: 'Blue-team feedback learned during the action.' },
     },
     output: {
       schema: {},
@@ -522,7 +535,7 @@ async function sarifReport(store: import('./store.js').EngagementStore, sid: str
             defaultConfiguration: { level: SEV_TO_SARIF[f.severity]?.level ?? 'note' },
             properties: {
               ...(f.cvssScore !== undefined ? { 'security-severity': f.cvssScore.toFixed(1) } : {}),
-              tags: [...(f.techniqueIds ?? []), ...(f.owaspIds ?? [])],
+              tags: [...(f.techniqueIds ?? []), ...(f.owaspIds ?? []), ...(f.cweIds ?? [])],
               ...(goal !== null ? { authorization: goal.authorization } : {}),
             },
           })),
@@ -544,6 +557,7 @@ async function sarifReport(store: import('./store.js').EngagementStore, sid: str
           intentId: f.intentId,
           ...(f.affectedAssetId !== undefined ? { affectedAssetId: f.affectedAssetId } : {}),
           ...(f.status === 'fixed' ? { retestStatus: 'fixed' } : {}),
+          ...(f.detected !== undefined ? { detectionOutcome: f.detected } : {}),
         },
         partialFingerprints: { 'redteamFindingId/v1': id },
       })),
@@ -605,6 +619,27 @@ async function markdownReport(
     lines.push(`资产覆盖 / Coverage: ${cov.tested.length}/${totalAssets} tested` +
       (cov.untested.length > 0 ? ` — 未测 / untested: ${cov.untested.join(', ')}` : ''))
   }
+  const tech = st.techniques
+  if (tech.attempted.length > 0 || tech.proven.length > 0) {
+    lines.push(`ATT&CK 覆盖 / Technique coverage: ${tech.proven.length} proven · ${(tech.attempted.length - tech.proven.length)} attempted-only`)
+    lines.push(`  已证实 / Proven: ${tech.proven.map((t) => `\`${t}\``).join(', ') || '(none)'}`)
+    const onlyAttempted = tech.attempted.filter((t) => !tech.proven.includes(t))
+    if (onlyAttempted.length > 0) {
+      lines.push(`  仅尝试 / Attempted only: ${onlyAttempted.map((t) => `\`${t}\``).join(', ')}`)
+    }
+  }
+  const detectionCounts = new Map<string, number>()
+  for (const [, f] of r.findings) {
+    if (f.detected !== undefined) detectionCounts.set(f.detected, (detectionCounts.get(f.detected) ?? 0) + 1)
+  }
+  const detectedTotal = [...detectionCounts.values()].reduce((a, b) => a + b, 0)
+  if (detectedTotal > 0) {
+    lines.push(
+      `检测反馈 / Detection: ` +
+      DETECTION_OUTCOMES.map((d) => `${d} ${detectionCounts.get(d) ?? 0}`).join(' · ') +
+      ` — 防御触达率 / noticed: ${Math.round(((detectionCounts.get('alerted') ?? 0) + (detectionCounts.get('prevented') ?? 0)) / detectedTotal * 100)}%`,
+    )
+  }
   lines.push('')
 
   lines.push('## 探索链路 / Exploration chain')
@@ -665,6 +700,18 @@ async function markdownReport(
       }
       if (f.owaspIds !== undefined && f.owaspIds.length > 0) {
         lines.push(`- OWASP Top 10: ${f.owaspIds.join(', ')}`)
+      }
+      if (f.cweIds !== undefined && f.cweIds.length > 0) {
+        lines.push(`- CWE: ${f.cweIds.map((c) => `\`${c}\``).join(', ')}`)
+      }
+      if (f.detected !== undefined) {
+        const detectedTag: Record<string, string> = {
+          undetected: '🫥 未被检测',
+          logged: '📝 仅日志',
+          alerted: '🔔 触发告警',
+          prevented: '⛔ 被阻断',
+        }
+        lines.push(`- 检测反馈 / Detection: ${detectedTag[f.detected] ?? f.detected}`)
       }
       lines.push('', '**复现步骤 / Reproduction**')
       f.reproducibleSteps.forEach((step, i) => lines.push(`${i + 1}. ${step}`))
