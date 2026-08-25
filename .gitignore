@@ -4,3 +4,4 @@ dist/
 *.tsbuildinfo
 .vitest/
 *.tgz
+*.tar.gz
