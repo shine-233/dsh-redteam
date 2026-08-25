@@ -156,4 +156,31 @@ describe('redteam projection', () => {
     expect(state.nodes.find((n) => n.id === 'intent-1')!.status)
       .toBe(beforeUpdate.nodes.find((n) => n.id === 'intent-1')!.status)
   })
+
+  it('folds anchors, lineage edges, chain deps, and the closing verdict', () => {
+    let state = initState()
+    state = fold(state, call(1, 'redteam_add_goal', { objective: 'o', authorization: 'a' }))
+    state = fold(state, call(2, 'redteam_add_asset', { type: 'host', value: 'h1' }))
+    state = fold(state, call(3, 'redteam_add_intent', {
+      title: 'chain step',
+      assetIds: ['asset-1'],
+      dependsOn: [],
+      derivedFrom: [],
+    }))
+    expect(state.nodes.find((n) => n.id === 'intent-1')!.assetIds).toEqual(['asset-1'])
+
+    // A second intent deriving from a fact and depending on intent-1.
+    state = fold(state, call(4, 'redteam_add_fact', { intentId: 'intent-1', detail: 'd' }))
+    state = fold(state, call(5, 'redteam_add_intent', {
+      title: 'step two',
+      derivedFrom: ['fact-1'],
+      dependsOn: ['intent-1'],
+      assetIds: ['asset-1'],
+    }))
+    expect(state.edges).toContainEqual({ from: 'fact-1', to: 'intent-2', relation: 'derived_from' })
+    expect(state.edges).toContainEqual({ from: 'intent-1', to: 'intent-2', relation: 'depends_on' })
+
+    state = fold(state, call(6, 'redteam_close_goal', { outcome: 'partial' }))
+    expect(state.goal).toMatchObject({ objective: 'o', outcome: 'partial' })
+  })
 })

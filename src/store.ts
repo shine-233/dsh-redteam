@@ -232,12 +232,58 @@ export class EngagementStore {
     return found as (GoalRecord & { id: string }) | undefined
   }
 
+  /**
+   * Stamp an explicit verdict on the active engagement and close it. Unlike
+   * superseding via a new goal this records WHY the engagement ended.
+   */
+  async closeGoal(sessionId: string, input: {
+    outcome: import('./types.js').GoalOutcome
+    summary?: string
+  }): Promise<{ goalId: string; outcome: import('./types.js').GoalOutcome }> {
+    const goal = this.activeGoal(sessionId)
+    if (goal === undefined) {
+      throw new StoreError(
+        'no-active-engagement',
+        `no active engagement in this session — nothing to close`,
+      )
+    }
+    const closed: GoalRecord = {
+      ...goal,
+      closedAt: Date.now(),
+      outcome: input.outcome,
+      ...(input.summary !== undefined ? { closingSummary: input.summary } : {}),
+    }
+    await this.put('goals', goal.id, closed)
+    return { goalId: goal.id, outcome: input.outcome }
+  }
+
   async addIntent(sessionId: string, input: {
     title: string
     rationale?: string
     phase?: import('./types.js').Phase
+    /** Facts this direction derives from (must exist in the session). */
+    derivedFrom?: string[]
+    /** Prerequisite intents for multi-step chains (must exist). */
+    dependsOn?: string[]
+    /** Assets this direction anchors to (must exist). */
+    assetIds?: string[]
   }): Promise<string> {
     const goal = this.requireActiveGoal(sessionId)
+    for (const factId of input.derivedFrom ?? []) {
+      if (this.get<FactRecord>('facts', sessionId, factId) === undefined) {
+        throw new StoreError('missing-ref', `fact '${factId}' does not exist in this session`)
+      }
+    }
+    for (const intentId of input.dependsOn ?? []) {
+      if (this.get<IntentRecord>('intents', sessionId, intentId) === undefined) {
+        throw new StoreError('missing-ref', `intent '${intentId}' does not exist in this session`)
+      }
+    }
+    for (const assetId of input.assetIds ?? []) {
+      if (this.get<AssetRecord>('assets', sessionId, assetId) === undefined) {
+        throw new StoreError('missing-ref', `asset '${assetId}' does not exist in this session`)
+      }
+    }
     const id = this.nextId('intents', sessionId)
     const parsed = intentSchema.parse({
       sessionId,
@@ -245,6 +291,15 @@ export class EngagementStore {
       title: input.title,
       rationale: input.rationale ?? '',
       ...(input.phase !== undefined ? { phase: input.phase } : {}),
+      ...(input.derivedFrom !== undefined && input.derivedFrom.length > 0
+        ? { derivedFrom: [...input.derivedFrom] }
+        : {}),
+      ...(input.dependsOn !== undefined && input.dependsOn.length > 0
+        ? { dependsOn: [...input.dependsOn] }
+        : {}),
+      ...(input.assetIds !== undefined && input.assetIds.length > 0
+        ? { assetIds: [...input.assetIds] }
+        : {}),
       createdAt: Date.now(),
     })
     await this.put('intents', id, parsed as IntentRecord)
@@ -530,6 +585,7 @@ export class EngagementStore {
     counts: EngagementCounts
     openIntents: { id: string; title: string }[]
     progress: { active: number; done: number; blocked: number }
+    coverage: { tested: string[]; untested: string[] }
   } {
     const goal = this.activeGoal(sessionId)
     const win = this.windowOf(sessionId)
@@ -545,6 +601,7 @@ export class EngagementStore {
         .filter(([, record]) => (record.status ?? 'active') === 'active')
         .map(([id, record]) => ({ id, title: record.title })),
       progress,
+      coverage: this.coverage(sessionId),
     }
   }
 
@@ -560,14 +617,24 @@ export class EngagementStore {
       return { nodes: [], assets: [], edges: [], counts: { ...EMPTY_COUNTS } }
     }
     const goal = this.activeGoal(sessionId)!
-    const nodes: RedteamViewNode[] = [{ id: goal.id, kind: 'goal', title: goal.objective, status: null }]
+    const nodes: RedteamViewNode[] = [{ id: goal.id, kind: 'goal', title: goal.objective, status: null, assetIds: [] }]
     const edges: GraphEdge[] = []
 
     const intents = this.rowsInWindow('intents', sessionId, win) as [string, IntentRecord][]
     const intentIds = new Set(intents.map(([id]) => id))
     for (const [id, intent] of intents) {
-      nodes.push({ id, kind: 'intent', title: intent.title, status: intent.status ?? 'active' })
+      nodes.push({ id, kind: 'intent', title: intent.title, status: intent.status ?? 'active', assetIds: [...(intent.assetIds ?? [])] })
       edges.push({ from: intent.goalId, to: id, relation: 'spawns' })
+    }
+    // Fact→intent lineage and chain prerequisites (only when both ends exist).
+    const factIds = new Set(this.rowsInWindow('facts', sessionId, win).map(([id]) => id))
+    for (const [id, intent] of intents) {
+      for (const factId of intent.derivedFrom ?? []) {
+        if (factIds.has(factId)) edges.push({ from: factId, to: id, relation: 'derived_from' })
+      }
+      for (const depId of intent.dependsOn ?? []) {
+        if (intentIds.has(depId)) edges.push({ from: depId, to: id, relation: 'depends_on' })
+      }
     }
     for (const [id, fact] of this.rowsInWindow('facts', sessionId, win) as [string, FactRecord][]) {
       if (!intentIds.has(fact.intentId)) continue
@@ -594,6 +661,31 @@ export class EngagementStore {
     }
   }
 
+  /**
+   * Asset test coverage for the active engagement: an asset counts as tested
+   * when any anchored intent targets it or a finding cites it as affected.
+   */
+  coverage(sessionId: string): { tested: string[]; untested: string[] } {
+    const win = this.windowOf(sessionId)
+    if (win === null) return { tested: [], untested: [] }
+    const assetIds = new Set(this.rowsInWindow('assets', sessionId, win).map(([id]) => id))
+    const tested = new Set<string>()
+    for (const [, intent] of this.rowsInWindow('intents', sessionId, win) as [string, IntentRecord][]) {
+      for (const assetId of intent.assetIds ?? []) {
+        if (assetIds.has(assetId)) tested.add(assetId)
+      }
+    }
+    for (const [, finding] of this.rowsInWindow('findings', sessionId, win) as [string, FindingRecord][]) {
+      if (finding.affectedAssetId !== undefined && assetIds.has(finding.affectedAssetId)) {
+        tested.add(finding.affectedAssetId)
+      }
+    }
+    return {
+      tested: [...tested],
+      untested: [...assetIds].filter((id) => !tested.has(id)),
+    }
+  }
+
   /** Projection window delivered to the Web tab. */
   projection(sessionId: string): RedteamProjection {
     const graph = this.graph(sessionId)
@@ -610,6 +702,7 @@ export class EngagementStore {
           cvssScore: f.cvssScore ?? null,
           techniqueIds: [...(f.techniqueIds ?? [])],
           status: f.status === 'fixed' ? 'fixed' as const : null,
+          affectedAssetId: f.affectedAssetId ?? null,
         }))
     const credentials = this.maskedCredentials(sessionId).map((c) => ({
       id: c.id,
@@ -620,7 +713,13 @@ export class EngagementStore {
       status: c.status as import('./types.js').CredentialStatus,
     }))
     return {
-      goal: goal === undefined ? null : { objective: goal.objective, authorization: goal.authorization },
+      goal: goal === undefined
+        ? null
+        : {
+            objective: goal.objective,
+            authorization: goal.authorization,
+            outcome: goal.outcome ?? null,
+          },
       nodes: graph.nodes,
       assets: graph.assets,
       findings,
@@ -638,6 +737,7 @@ export class EngagementStore {
     authorization: string
     createdAt: number
     closedAt?: number
+    outcome?: import('./types.js').GoalOutcome
     counts: EngagementCounts
   }[] {
     const all: ReturnType<EngagementStore['listEngagements']> = []
@@ -650,6 +750,7 @@ export class EngagementStore {
         authorization: goal.authorization,
         createdAt: goal.createdAt,
         ...(goal.closedAt !== undefined ? { closedAt: goal.closedAt } : {}),
+        ...(goal.outcome !== undefined ? { outcome: goal.outcome } : {}),
         counts: this.countsForGoal(key)!,
       })
     }
@@ -714,7 +815,7 @@ export class EngagementStore {
   }
 
   edgeRelations(): readonly EdgeRelation[] {
-    return ['spawns', 'yields', 'proves', 'parent'] as const
+    return ['spawns', 'yields', 'derived_from', 'proves', 'parent', 'depends_on'] as const
   }
 }
 

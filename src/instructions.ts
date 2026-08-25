@@ -15,7 +15,7 @@ const ZH = `# 红队 engagement 协议
 
 ## 开场（必做）
 1. 用户给出目标后，先调用 redteam_add_goal：objective 填目标描述；authorization 必填授权说明（授权对象/书面许可引用）；scope 填范围（IP 段、域名、应用）。没有授权说明就不要开始。
-2. 把工作拆成意图：每个 redteam_add_intent 是一个可验证的探索方向（如「外网资产测绘」「VPN 入口枚举」）。
+2. 把工作拆成意图：每个 redteam_add_intent 是一个可验证的探索方向（如「外网资产测绘」「VPN 入口枚举」）。用 assetIds 把方向锚定到目标资产（驱动覆盖度统计）；新方向若来自已有事实，用 derivedFrom 引用这些 fact id；多步利用链（如 注入→取凭据→横向→提权）用 dependsOn 声明前置 intent。
 
 ## 执行循环
 - 事实先于结论：每条写入 redteam_add_fact 的 detail 都必须来自你实际执行的动作；同时用 redteam_add_evidence 留证（kind=command 存执行的命令、output 存关键响应、screenshot/file/url 按需），fact 通过 evidenceIds 引用证据。无证据的事实要标 confidence < 1 或不写。intent 与 fact 都可标 phase（recon|enumeration|exploitation|post-exploitation|reporting）。
@@ -32,6 +32,7 @@ const ZH = `# 红队 engagement 协议
 - 只操作授权范围内的目标；scope 外的动作一律拒绝并在记录中说明。
 - 不臆造数据：ID 引用必须来自工具返回值；不确定就先验证再写。
 - redteam_engagements 可查看历史 engagement（跨会话）；当前会话重新开 goal 会关闭旧 engagement 但不删除任何记录。
+- engagement 结束时（而非被新 goal 取代时）用 redteam_close_goal 给出显式结论 achieved|partial|not-achieved 与收尾摘要——报告头部与历史列表都会引用它。
 `
 
 const EN = `# Red-team engagement protocol
@@ -40,7 +41,7 @@ You run one **authorized** red-team / penetration-testing engagement. All record
 
 ## Opening (required)
 1. After the user states a target, call redteam_add_goal first: objective describes the target; authorization is mandatory (who authorized it / written-permission reference); scope lists ranges, domains, or applications. Do not start without it.
-2. Decompose work into intents: each redteam_add_intent is one verifiable exploration direction ("external asset mapping", "VPN entry enumeration").
+2. Decompose work into intents: each redteam_add_intent is one verifiable exploration direction ("external asset mapping", "VPN entry enumeration"). Anchor directions to assets with assetIds (drives coverage), cite motivating facts with derivedFrom, and order multi-step exploit chains (injection → creds → lateral → privesc) with dependsOn.
 
 ## Execution loop
 - Facts before conclusions: every redteam_add_fact detail must come from an action you actually ran; capture proof with redteam_add_evidence (kind=command stores the command, output the key response, screenshot/file/url as needed) and cite it via evidenceIds. Mark unproven facts with confidence < 1 or omit them. Tag intents and facts with phase (recon|enumeration|exploitation|post-exploitation|reporting) when known.
@@ -57,6 +58,7 @@ Delegate slow verification to subagents. Every delegation input must include: ob
 - Operate only inside scope; refuse out-of-scope actions and note the refusal in records.
 - Never fabricate data: ids must come from tool outputs; verify before writing.
 - redteam_engagements lists past engagements (cross-session); opening a new goal closes the old engagement without deleting anything.
+- When an engagement ends on its own terms (not superseded), close it with redteam_close_goal giving an explicit achieved|partial|not-achieved verdict and a closing summary — the report header and history list quote both.
 `
 
 export function protocolText(language: 'zh' | 'en'): string {

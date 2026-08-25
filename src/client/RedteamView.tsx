@@ -61,6 +61,8 @@ const styles = `
 .rt-edge.yields { stroke:#5b87c7; }
 .rt-edge.proves { stroke:#c75b5b; stroke-width:2; }
 .rt-edge.parent { stroke:#4f7a55; stroke-dasharray:4 3; }
+.rt-edge.derived_from { stroke:#8a7fc7; stroke-dasharray:2 3; }
+.rt-edge.depends_on { stroke:#c7895b; stroke-dasharray:6 3; }
 .rt-pill { font-size:10px; fill:var(--dsw-text-secondary,#8b95a1); }
 .rt-finding { border:1px solid var(--dsw-border,#2a3138); border-radius:8px; padding:10px 12px; margin-bottom:10px; }
 .rt-sev { font-weight:700; margin-right:6px; }
@@ -77,6 +79,12 @@ const styles = `
 .rt-md pre { background:var(--dsw-surface,#1b2026); padding:10px; border-radius:8px; overflow:auto; }
 .rt-progress { display:flex; gap:14px; padding:0 0 8px; font-size:12px; color:var(--dsw-text-secondary,#8b95a1); }
 .rt-progress b { color:#7fb069; margin-left:2px; }
+.rt-outcome { font-size:12px; margin-top:4px; font-weight:600; }
+.rt-outcome-achieved { color:#7fb069; }
+.rt-outcome-partial { color:#e0c04e; }
+.rt-outcome-not-achieved { color:#ff5c5c; }
+.rt-tested { color:#7fb069; font-size:11px; }
+.rt-untested { color:var(--dsw-text-secondary,#8b95a1); font-size:11px; opacity:.7; }
 .rt-hint { color:var(--dsw-text-secondary,#8b95a1); }
 .rt-cvss { margin-left:8px; padding:1px 7px; border-radius:10px; font-size:11px; font-weight:700; }
 .rt-cvss-crit { background:rgba(255,92,92,.18); color:#ff5c5c; }
@@ -113,6 +121,11 @@ export function RedteamView(props: RedteamViewProps): React.ReactNode {
       <div className="rt-goal">
         <strong>{projection.goal.objective}</strong>
         <div className="auth">授权 / Authorization: {projection.goal.authorization}</div>
+        {projection.goal.outcome !== null && (
+          <div className={`rt-outcome rt-outcome-${projection.goal.outcome}`}>
+            结论 / Outcome: {projection.goal.outcome}
+          </div>
+        )}
       </div>
       <div className="rt-counts">
         <span>意图<b>{counts.intents}</b></span>

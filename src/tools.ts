@@ -8,7 +8,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, FINDING_STATUSES, INTENT_STATUSES, PHASES, SEVERITIES } from './types.js'
+import { CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, INTENT_STATUSES, PHASES, SEVERITIES } from './types.js'
 import type { EngagementStore, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, SubmitResult } from './store.js'
 import { maskSecret } from './secrets.js'
 
@@ -139,14 +139,27 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
 
   const addIntent = defineTool<{
     title: string; rationale?: string; phase?: (typeof PHASES)[number]
+    derivedFrom?: string[]; dependsOn?: string[]; assetIds?: string[]
   }, { intentId: string }>({
     name: 'redteam_add_intent',
     description:
-      'Declare one exploration intent under the active engagement. Intents are the anchor nodes facts/findings attach to.',
+      'Declare one exploration intent under the active engagement. Intents are the anchor nodes facts/findings attach to. Anchor to assets with assetIds (drives coverage), cite motivating facts with derivedFrom, and order multi-step chains with dependsOn.',
     parameters: {
       title: { type: 'string', required: true, description: 'Short direction title.' },
       rationale: { type: 'string', description: 'Why this direction matters.' },
       phase: { type: 'string', enum: [...PHASES], description: 'Kill-chain phase this direction serves.' },
+      derivedFrom: {
+        type: 'array', items: { type: 'string' },
+        description: "Fact ids this direction was derived from, e.g. ['fact-3'].",
+      },
+      dependsOn: {
+        type: 'array', items: { type: 'string' },
+        description: "Prerequisite intent ids for multi-step exploit chains, e.g. ['intent-2'].",
+      },
+      assetIds: {
+        type: 'array', items: { type: 'string' },
+        description: "Asset ids this direction targets, e.g. ['asset-1'].",
+      },
     },
     output: {
       schema: {},
@@ -289,6 +302,23 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     }, args),
   })
 
+  const closeGoal = defineTool<{
+    outcome: (typeof GOAL_OUTCOMES)[number]; summary?: string
+  }, { goalId: string; outcome: string }>({
+    name: 'redteam_close_goal',
+    description:
+      'Close the active engagement with an explicit verdict: achieved / partial / not-achieved plus a closing summary. Prefer this over opening a new goal when the engagement simply ends — the verdict lands in the report header and the history list.',
+    parameters: {
+      outcome: { type: 'string', required: true, enum: [...GOAL_OUTCOMES] },
+      summary: { type: 'string', description: 'One-paragraph closing summary.' },
+    },
+    output: {
+      schema: {},
+      render: (_a, v) => [{ type: 'text', text: `engagement ${v.goalId} closed — outcome: ${v.outcome}` }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => await store.closeGoal(sid, a), args),
+  })
+
   const submit = defineTool<{
     intentId: string; evidence?: NewEvidence[]; facts?: NewFact[]; assets?: NewAsset[]
     findings?: NewFinding[]; credentials?: NewCredential[]
@@ -366,7 +396,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
 
   return [
     addGoal, addIntent, addEvidence, addFact, addAsset, addFinding,
-    addCredential, updateIntent, retestFinding, updateCredential,
+    addCredential, updateIntent, retestFinding, updateCredential, closeGoal,
     submit, state, graph, report, engagements,
   ]
 }
@@ -413,6 +443,15 @@ async function markdownReport(
     lines.push(`- **授权 / Authorization**: ${r.goal.authorization}`)
     if (r.goal.scope !== '') lines.push(`- **范围 / Scope**: ${r.goal.scope}`)
     lines.push(`- **开始 / Started**: ${new Date(r.goal.createdAt).toISOString()}`)
+    if (r.goal.outcome !== undefined) {
+      const verdict: Record<string, string> = {
+        achieved: '✅ 达成 / ACHIEVED',
+        partial: '◐ 部分达成 / PARTIAL',
+        'not-achieved': '✗ 未达成 / NOT ACHIEVED',
+      }
+      lines.push(`- **结论 / Outcome**: ${verdict[r.goal.outcome] ?? r.goal.outcome}`)
+    }
+    if (r.goal.closingSummary !== undefined) lines.push(`- **收尾摘要 / Closing summary**: ${r.goal.closingSummary}`)
   }
   lines.push(`- **生成 / Generated**: ${now}`)
   lines.push('')
@@ -436,6 +475,12 @@ async function markdownReport(
   lines.push(
     `意图进度 / Intent progress: ${st.progress.done} done · ${st.progress.active} active · ${st.progress.blocked} blocked — 已修复 / fixed findings: ${fixed}/${r.findings.length}`,
   )
+  const cov = st.coverage
+  const totalAssets = cov.tested.length + cov.untested.length
+  if (totalAssets > 0) {
+    lines.push(`资产覆盖 / Coverage: ${cov.tested.length}/${totalAssets} tested` +
+      (cov.untested.length > 0 ? ` — 未测 / untested: ${cov.untested.join(', ')}` : ''))
+  }
   lines.push('')
 
   lines.push('## 探索链路 / Exploration chain')
@@ -446,6 +491,12 @@ async function markdownReport(
       : ` [${intent.status.toUpperCase()}]`
     lines.push(`### ${id} — ${intent.title}${statusTag}`)
     if (intent.rationale !== '') lines.push('', intent.rationale)
+    if ((intent.derivedFrom?.length ?? 0) > 0) {
+      lines.push('', `- 派生自 / Derived from: ${intent.derivedFrom!.map((f) => `\`${f}\``).join(', ')}`)
+    }
+    if ((intent.dependsOn?.length ?? 0) > 0) {
+      lines.push(`- 前置步骤 / Depends on: ${intent.dependsOn!.map((i) => `\`${i}\``).join(', ')}`)
+    }
     const facts = r.facts.filter(([, f]) => f.intentId === id)
     if (facts.length > 0) {
       lines.push('', '**事实 / Facts**')

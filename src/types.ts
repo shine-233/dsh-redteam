@@ -37,6 +37,10 @@ export type IntentStatus = (typeof INTENT_STATUSES)[number]
 export const FINDING_STATUSES = ['confirmed', 'fixed'] as const
 export type FindingStatus = (typeof FINDING_STATUSES)[number]
 
+/** Explicit objective outcome stamped when an engagement closes. */
+export const GOAL_OUTCOMES = ['achieved', 'partial', 'not-achieved'] as const
+export type GoalOutcome = (typeof GOAL_OUTCOMES)[number]
+
 export interface GoalRecord {
   readonly sessionId: string
   readonly objective: string
@@ -45,6 +49,9 @@ export interface GoalRecord {
   readonly scope: string
   readonly createdAt: number
   readonly closedAt?: number | undefined
+  /** Verdict stamped by redteam_close_goal. */
+  readonly outcome?: GoalOutcome | undefined
+  readonly closingSummary?: string | undefined
 }
 
 export interface IntentRecord {
@@ -55,6 +62,12 @@ export interface IntentRecord {
   readonly phase?: Phase | undefined
   /** Omitted means `active` — records written before v0.3 stay active. */
   readonly status?: IntentStatus | undefined
+  /** Facts this direction was derived from (fact→intent lineage). */
+  readonly derivedFrom?: readonly string[] | undefined
+  /** Prerequisite intents for multi-step exploit chains. */
+  readonly dependsOn?: readonly string[] | undefined
+  /** Assets this direction targets — the coverage anchor set. */
+  readonly assetIds?: readonly string[] | undefined
   readonly createdAt: number
 }
 
@@ -132,7 +145,7 @@ export interface CredentialRecord {
 }
 
 /** Edge relations derived from record references at read time. */
-export type EdgeRelation = 'spawns' | 'yields' | 'proves' | 'parent'
+export type EdgeRelation = 'spawns' | 'yields' | 'derived_from' | 'proves' | 'parent' | 'depends_on'
 
 export interface GraphEdge {
   readonly from: string
@@ -156,6 +169,8 @@ export interface EngagementState {
   readonly openIntents: readonly { id: string; title: string }[]
   /** Intent task-tree progress (omitted-status records count as active). */
   readonly progress: { active: number; done: number; blocked: number }
+  /** Asset test coverage: assets touched by anchored intents/findings vs not. */
+  readonly coverage: { tested: string[]; untested: string[] }
 }
 
 /** Windowed view delivered to the Web tab via the session projection. */
@@ -165,6 +180,8 @@ export interface RedteamViewNode {
   readonly title: string
   /** Intent lifecycle badge; null on goal nodes and legacy records. */
   readonly status: IntentStatus | null
+  /** Assets this intent targets (empty on goal nodes). */
+  readonly assetIds: readonly string[]
 }
 
 export interface RedteamViewAsset {
@@ -184,6 +201,8 @@ export interface RedteamViewFinding {
   readonly cvssScore: number | null
   readonly techniqueIds: readonly string[]
   readonly status: FindingStatus | null
+  /** Asset this finding was proven against, when registered. */
+  readonly affectedAssetId: string | null
 }
 
 /** Credential as seen by the Web tab — masked, never the raw secret. */
@@ -197,7 +216,11 @@ export interface RedteamViewCredential {
 }
 
 export interface RedteamProjection {
-  readonly goal: { objective: string; authorization: string } | null
+  readonly goal: {
+    objective: string
+    authorization: string
+    outcome: GoalOutcome | null
+  } | null
   readonly nodes: readonly RedteamViewNode[]
   readonly assets: readonly RedteamViewAsset[]
   readonly findings: readonly RedteamViewFinding[]

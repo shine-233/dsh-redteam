@@ -27,12 +27,17 @@ export function ChainGraph({ projection }: { projection: RedteamProjection }): R
   if (goal === undefined) return <p className="rt-empty">(no engagement)</p>
 
   // Column per intent; the goal column is centered above them.
+  // Lineage/chain edges are drawn as overlays, not fan-out columns.
   const columns = intents.map((intent) => ({
     intent,
     children: projection.edges.filter(
-      (e) => e.relation !== 'parent' && e.relation !== 'spawns' && e.from === intent.id,
-    ),
+      (e) => e.relation === 'yields' || e.relation === 'proves',
+    ).filter((e) => e.from === intent.id),
   }))
+
+  const overlayEdges = projection.edges.filter(
+    (e) => (e.relation === 'derived_from' || e.relation === 'depends_on'),
+  )
 
   const width = Math.max(1, intents.length) * (NODE_W + GAP_X)
   const maxStack = Math.max(1, ...columns.map((c) => c.children.length))
@@ -84,6 +89,18 @@ export function ChainGraph({ projection }: { projection: RedteamProjection }): R
             <text className="rt-pill" x={e.midX + 6} y={e.midY}>{e.label}</text>
           </g>
         ))}
+        {overlayEdges.map((e, i) => {
+          const from = placed.find((p) => p.id === e.from)
+          const to = placed.find((p) => p.id === e.to)
+          if (from === undefined || to === undefined) return null
+          return (
+            <path
+              key={`ov-${i}`}
+              className={`rt-edge ${e.relation}`}
+              d={curve(from.x + NODE_W / 2, from.y + NODE_H, to.x + NODE_W / 2, to.y)}
+            />
+          )
+        })}
         {placed.map((n) => (
           <g key={n.id} className={`rt-node ${n.kind}`}>
             <rect x={n.x} y={n.y} width={NODE_W} height={NODE_H} rx={8}

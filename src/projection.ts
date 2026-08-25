@@ -26,12 +26,16 @@ const WINDOW_CAP = 200
 const edgeSchema = z.object({
   from: z.string(),
   to: z.string(),
-  relation: z.enum(['spawns', 'yields', 'proves', 'parent']),
+  relation: z.enum(['spawns', 'yields', 'derived_from', 'proves', 'parent', 'depends_on']),
 })
 
 export const redteamProjectionSchema = z.object({
   goal: z.union([
-    z.object({ objective: z.string(), authorization: z.string() }),
+    z.object({
+      objective: z.string(),
+      authorization: z.string(),
+      outcome: z.enum(['achieved', 'partial', 'not-achieved']).nullable().default(null),
+    }),
     z.null(),
   ]),
   nodes: z.array(z.object({
@@ -39,6 +43,7 @@ export const redteamProjectionSchema = z.object({
     kind: z.enum(['goal', 'intent']),
     title: z.string(),
     status: z.enum(['active', 'done', 'blocked']).nullable().default(null),
+    assetIds: z.array(z.string()).default([]),
   })),
   assets: z.array(z.object({
     id: z.string(),
@@ -55,6 +60,7 @@ export const redteamProjectionSchema = z.object({
     cvssScore: z.union([z.number(), z.null()]).default(null),
     techniqueIds: z.array(z.string()).default([]),
     status: z.enum(['confirmed', 'fixed']).nullable().default(null),
+    affectedAssetId: z.union([z.string(), z.null()]).default(null),
   })),
   credentials: z.array(z.object({
     id: z.string(),
@@ -103,6 +109,7 @@ const MUTATING = new Set([
   'redteam_update_intent',
   'redteam_retest_finding',
   'redteam_update_credential',
+  'redteam_close_goal',
   'redteam_submit',
 ])
 
@@ -151,10 +158,11 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       state.nodes = state.nodes.filter((n) => n.kind !== 'goal')
       state.edges = state.edges.filter((e) => e.relation === 'parent'
         || !state.nodes.every((n) => n.id !== e.from))
-      state.nodes.push({ id, kind: 'goal', title: String(args?.objective ?? ''), status: null })
+      state.nodes.push({ id, kind: 'goal', title: String(args?.objective ?? ''), status: null, assetIds: [] })
       state.goal = {
         objective: String(args?.objective ?? ''),
         authorization: String(args?.authorization ?? ''),
+        outcome: null,
       }
       break
     }
@@ -162,8 +170,17 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       const id = nextId(state, 'intent')
       const goalNode = state.nodes.find((n) => n.kind === 'goal')
       const status = INTENT_STATUSES.includes(args?.status) ? args.status : 'active'
-      state.nodes.push({ id, kind: 'intent', title: String(args?.title ?? ''), status })
+      const assetIds = Array.isArray(args?.assetIds)
+        ? args.assetIds.filter((a: unknown) => typeof a === 'string')
+        : []
+      state.nodes.push({ id, kind: 'intent', title: String(args?.title ?? ''), status, assetIds })
       if (goalNode !== undefined) pushEdge(state.edges, goalNode.id, id, 'spawns')
+      for (const factId of Array.isArray(args?.derivedFrom) ? args.derivedFrom : []) {
+        if (typeof factId === 'string') pushEdge(state.edges, factId, id, 'derived_from')
+      }
+      for (const depId of Array.isArray(args?.dependsOn) ? args.dependsOn : []) {
+        if (typeof depId === 'string') pushEdge(state.edges, depId, id, 'depends_on')
+      }
       state.nodes = evictOldest([...state.nodes], WINDOW_CAP)
       break
     }
@@ -210,6 +227,9 @@ function applyMutation(state: FoldState, name: string, args: any): void {
           ? args.techniqueIds.filter((t: unknown) => typeof t === 'string' && ATTACK_TECHNIQUE_RE.test(t))
           : [],
         status: null,
+        affectedAssetId: typeof args?.affectedAssetId === 'string' && args.affectedAssetId !== ''
+          ? args.affectedAssetId
+          : null,
       })
       state.findings = evictOldest([...state.findings], WINDOW_CAP)
       state.edges = evictOldest([...state.edges], WINDOW_CAP * 2)
@@ -259,6 +279,12 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       if (credential !== undefined && CREDENTIAL_STATUSES.includes(args?.status)) {
         state.credentials = state.credentials.map((c) =>
           c.id === credential.id ? { ...c, status: args.status } : c)
+      }
+      break
+    }
+    case 'redteam_close_goal': {
+      if (state.goal !== null && ['achieved', 'partial', 'not-achieved'].includes(args?.outcome)) {
+        state.goal = { ...state.goal, outcome: args.outcome }
       }
       break
     }

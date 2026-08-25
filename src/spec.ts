@@ -28,6 +28,7 @@ import {
   CREDENTIAL_STATUSES,
   EVIDENCE_KINDS,
   FINDING_STATUSES,
+  GOAL_OUTCOMES,
   INTENT_STATUSES,
   PHASES,
   SEVERITIES,
@@ -45,6 +46,8 @@ export const goalSchema = z.object({
   scope: z.string(),
   createdAt: isoTime,
   closedAt: isoTime.optional(),
+  outcome: z.enum(GOAL_OUTCOMES).optional(),
+  closingSummary: z.string().optional(),
 })
 
 export const intentSchema = z.object({
@@ -54,6 +57,9 @@ export const intentSchema = z.object({
   rationale: z.string(),
   phase: z.enum(PHASES).optional(),
   status: z.enum(INTENT_STATUSES).optional(),
+  derivedFrom: z.array(z.string()).optional(),
+  dependsOn: z.array(z.string()).optional(),
+  assetIds: z.array(z.string()).optional(),
   createdAt: isoTime,
 })
 

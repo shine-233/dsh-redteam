@@ -1,7 +1,7 @@
 {
   "name": "dsh-redteam",
   "description": "DeepSeek Harness 红队/渗透测试模式 bundle：授权范围内的 engagement 记录（目标→意图→证据→事实→漏洞→资产）、跨会话历史、Markdown/JSON 报告与 Web 可视化。",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publishConfig": {
     "access": "public"
   },

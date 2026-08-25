@@ -37,6 +37,10 @@ dsh plugin --profile web add file:C:\path\to\dsh-redteam-0.3.0.tgz
 | 漏洞复测闭环 | 无（Strix find-and-fix 风格） | `redteam_retest_finding` 记录 fixed/still-vulnerable 复测结果，报告标注 ✅ 已修复与复测时间 |
 | OWASP Top 10 | 无 | finding 可映射 `owaspIds`（如 A01:2021 / A05:2017），写入时校验格式 |
 | 资产指纹标签 | 无 | asset 可挂 tags（服务名/组件/版本），资产表与报告展示 |
+| 资产锚点与覆盖度 | 无（ARTEX 双图架构风格） | intent 用 `assetIds` 锚定目标资产，`redteam_state` / 报告 / 资产视图输出已测 vs 未测覆盖 |
+| fact→intent 派生边 | derived_from 边 | intent 用 `derivedFrom` 引用触发它的事实，血缘链入图 |
+| 多步攻击链依赖 | 无（ARTEX planner todolist 风格） | intent 用 `dependsOn` 声明前置步骤（注入→取凭据→横向→提权），图中虚线呈现 |
+| 目标显式结论 | 无（ARTEX prove_goal 风格） | `redteam_close_goal` 以 achieved/partial/not-achieved 收尾并留摘要，报告头部与历史列表引用 |
 
 ## 架构速览
 

@@ -238,4 +238,72 @@ describe('EngagementStore', () => {
     // Tags flow through the graph view.
     expect(store.graph(SID).assets[0]!.tags).toEqual(['ssh', 'openssh-8.4'])
   })
+
+  it('anchors intents to assets and computes test coverage', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const web = await store.addAsset(SID, { type: 'host', value: 'www.example.net' })
+    const db = await store.addAsset(SID, { type: 'host', value: 'db.example.net' })
+    await store.addAsset(SID, { type: 'domain', value: 'example.net' })
+
+    const intent = await store.addIntent(SID, { title: 'portal', assetIds: [web] })
+    await store.addFinding(SID, intent, {
+      title: 'sqli', severity: 'critical', description: '',
+      reproducibleSteps: ['s'], affectedAssetId: db,
+    })
+
+    const coverage = store.coverage(SID)
+    expect(coverage.tested.sort()).toEqual([db, web].sort())
+    expect(coverage.untested).toEqual(['asset-3'])
+    expect(store.state(SID).coverage).toEqual(coverage)
+
+    // Unknown anchors are rejected.
+    await expect(store.addIntent(SID, { title: 'x', assetIds: ['asset-nope'] }))
+      .rejects.toMatchObject({ code: 'missing-ref' })
+  })
+
+  it('derives intents from facts and orders multi-step chains', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const intent = await store.addIntent(SID, { title: 'injection' })
+    const evidence = await store.addEvidence(SID, { kind: 'output', content: 'sql error' })
+    const fact = await store.addFact(SID, intent, { detail: 'injectable param', evidenceIds: [evidence] })
+
+    // Step two derives from the fact and depends on step one.
+    const step2 = await store.addIntent(SID, {
+      title: 'harvest creds',
+      derivedFrom: [fact],
+      dependsOn: [intent],
+    })
+    const graph = store.graph(SID)
+    expect(graph.edges).toContainEqual({ from: fact, to: step2, relation: 'derived_from' })
+    expect(graph.edges).toContainEqual({ from: intent, to: step2, relation: 'depends_on' })
+
+    // Broken references rejected.
+    await expect(store.addIntent(SID, { title: 'x', derivedFrom: ['fact-99'] }))
+      .rejects.toMatchObject({ code: 'missing-ref' })
+    await expect(store.addIntent(SID, { title: 'y', dependsOn: ['intent-99'] }))
+      .rejects.toMatchObject({ code: 'missing-ref' })
+  })
+
+  it('closes the engagement with an explicit verdict', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const result = await store.closeGoal(SID, {
+      outcome: 'partial',
+      summary: 'two of three objectives met',
+    })
+    expect(result.outcome).toBe('partial')
+
+    // Closed goal is no longer active; writes require a fresh goal.
+    expect(store.activeGoal(SID)).toBeUndefined()
+    await expect(store.addIntent(SID, { title: 'late' }))
+      .rejects.toMatchObject({ code: 'no-active-engagement' })
+    await expect(store.closeGoal(SID, { outcome: 'achieved' }))
+      .rejects.toMatchObject({ code: 'no-active-engagement' })
+
+    // History carries the verdict.
+    const history = store.listEngagements()
+    expect(history[0]!.outcome).toBe('partial')
+  })
 })
