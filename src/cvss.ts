@@ -31,9 +31,17 @@ export interface CvssBase {
  * any malformed, duplicate, or missing metric — callers treat null as "no
  * score", never as an error.
  */
+/** Base-metric keys a vector must (only) declare. */
+const BASE_KEYS = new Set(['AV', 'AC', 'PR', 'UI', 'S', 'C', 'I', 'A'])
+/** Temporal/supplemental keys tolerated but ignored for base scoring. */
+const IGNORED_KEYS = new Set(['E', 'RL', 'RC', 'CR', 'IR', 'AR', 'MAV', 'MAC'])
+
 export function parseCvssVector(vector: string): CvssBase | null {
   const parts = vector.trim().split('/').filter((p) => p !== '')
+  // v3.x prefixes are optional; an explicit v4 prefix means a different key
+  // system this parser must not half-read.
   if (parts[0] === 'CVSS:3.0' || parts[0] === 'CVSS:3.1') parts.shift()
+  else if (parts[0]?.startsWith('CVSS:')) return null
   const seen = new Map<string, string>()
   for (const part of parts) {
     const [key, value] = part.split(':')
@@ -41,6 +49,8 @@ export function parseCvssVector(vector: string): CvssBase | null {
     if (key === undefined || value === undefined || key.length < 1 || key.length > 2 || value.length !== 1) {
       return null
     }
+    if (IGNORED_KEYS.has(key)) continue
+    if (!BASE_KEYS.has(key)) return null
     if (seen.has(key)) return null
     seen.set(key, value)
   }

@@ -348,7 +348,17 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     name: 'redteam_state',
     description: 'Current engagement summary: active goal, record counts, open intents.',
     parameters: {},
-    output: { schema: {}, render: (_a, v) => [{ type: 'text', text: JSON.stringify(v.counts) }] },
+    output: {
+      schema: {},
+      render: (_a, v) => [{
+        type: 'text',
+        text: JSON.stringify({
+          counts: v.counts,
+          progress: v.progress,
+          coverage: { tested: v.coverage.tested.length, untested: v.coverage.untested },
+        }),
+      }],
+    },
     execute: (_args, exec) => withStore(exec, async (store, sid) => await store.state(sid), {} as Record<string, never>),
   })
 

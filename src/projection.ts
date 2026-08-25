@@ -131,6 +131,10 @@ function nextId(state: FoldState, prefix: string): string {
   const existing = new Set<string>([
     ...state.nodes.map((n) => n.id),
     ...state.assets.map((a) => a.id),
+    // Findings and credentials never appear as nodes; without them a kind
+    // whose edges were evicted (or that has no edges at all) mints repeats.
+    ...state.findings.map((f) => f.id),
+    ...state.credentials.map((c) => c.id),
     ...state.edges.flatMap((e) => [e.from, e.to]),
   ])
   let n = 0

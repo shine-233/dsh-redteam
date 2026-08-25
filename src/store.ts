@@ -28,6 +28,7 @@ import type {
   RedteamViewNode,
   Severity,
 } from './types.js'
+import { CREDENTIAL_STATUSES, INTENT_STATUSES } from './types.js'
 import {
   assetSchema,
   credentialSchema,
@@ -438,6 +439,12 @@ export class EngagementStore {
     title?: string
     rationale?: string
   }): Promise<IntentRecord & { id: string }> {
+    if (patch.status !== undefined && !INTENT_STATUSES.includes(patch.status)) {
+      throw new StoreError('invalid-record', `invalid intent status: '${patch.status}'`)
+    }
+    if (patch.title !== undefined && patch.title.trim() === '') {
+      throw new StoreError('invalid-record', 'intent title must not be empty')
+    }
     const existing = this.get<IntentRecord>('intents', sessionId, intentId)
     if (existing === undefined) {
       throw new StoreError('missing-ref', `intent '${intentId}' does not exist in this session`)
@@ -461,7 +468,6 @@ export class EngagementStore {
     notes?: string
     evidenceIds?: string[]
   }): Promise<FindingRecord & { id: string }> {
-    this.requireActiveGoal(sessionId)
     const existing = this.get<FindingRecord>('findings', sessionId, findingId)
     if (existing === undefined) {
       throw new StoreError('missing-ref', `finding '${findingId}' does not exist in this session`)
@@ -483,6 +489,9 @@ export class EngagementStore {
     status: import('./types.js').CredentialStatus
     evidenceIds?: string[]
   }): Promise<CredentialRecord & { id: string }> {
+    if (!CREDENTIAL_STATUSES.includes(patch.status)) {
+      throw new StoreError('invalid-record', `invalid credential status: '${patch.status}'`)
+    }
     const existing = this.get<CredentialRecord>('credentials', sessionId, credentialId)
     if (existing === undefined) {
       throw new StoreError('missing-ref', `credential '${credentialId}' does not exist in this session`)

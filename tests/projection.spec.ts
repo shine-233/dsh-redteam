@@ -183,4 +183,22 @@ describe('redteam projection', () => {
     state = fold(state, call(6, 'redteam_close_goal', { outcome: 'partial' }))
     expect(state.goal).toMatchObject({ objective: 'o', outcome: 'partial' })
   })
+
+  it('mints distinct credential ids even without edges (regression)', () => {
+    let state = initState()
+    state = fold(state, call(1, 'redteam_add_goal', { objective: 'o', authorization: 'a' }))
+    for (let i = 0; i < 3; i++) {
+      state = fold(state, call(2 + i, 'redteam_add_credential', { kind: 'password', secret: `s${i}` }))
+    }
+    expect(state.credentials.map((c) => c.id)).toEqual(['cred-1', 'cred-2', 'cred-3'])
+    // Findings whose intent is absent from the window must still mint fresh ids.
+    state = fold(state, call(9, 'redteam_add_finding', {
+      intentId: 'intent-gone', title: 't', severity: 'low', description: '', reproducibleSteps: ['s'],
+    }))
+    expect(state.findings.map((f) => f.id)).toEqual(['finding-1'])
+    state = fold(state, call(10, 'redteam_add_finding', {
+      intentId: 'intent-gone', title: 'u', severity: 'low', description: '', reproducibleSteps: ['s'],
+    }))
+    expect(state.findings.map((f) => f.id)).toEqual(['finding-1', 'finding-2'])
+  })
 })

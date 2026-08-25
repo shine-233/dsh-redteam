@@ -24,6 +24,15 @@ describe('parseCvssVector', () => {
     expect(parseCvssVector(`${V}/AV:A`)).toBeNull() // duplicate metric key
     expect(parseCvssVector('')).toBeNull()
   })
+
+  it('ignores temporal/supplemental metrics but rejects unknown keys', () => {
+    const withTemporal = `${V}/E:H/RL:O/RC:C`
+    expect(parseCvssVector(withTemporal)).not.toBeNull()
+    expect(scoreVector(withTemporal)).toBe(scoreVector(V)) // base score unaffected
+    expect(parseCvssVector(`${V}/ZZ:Z`)).toBeNull()
+    // An explicit v4 prefix is a different key system — refuse to half-read it.
+    expect(parseCvssVector(V.replace('CVSS:3.1', 'CVSS:4.0'))).toBeNull()
+  })
 })
 
 describe('cvssBaseScore (FIRST reference scores)', () => {

@@ -306,4 +306,26 @@ describe('EngagementStore', () => {
     const history = store.listEngagements()
     expect(history[0]!.outcome).toBe('partial')
   })
+
+  it('validates lifecycle patches and allows post-close retests', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const intent = await store.addIntent(SID, { title: 'web' })
+    const finding = await store.addFinding(SID, intent, {
+      title: 'sqli', severity: 'high', description: '', reproducibleSteps: ['s'],
+    })
+
+    // Empty title / garbage status rejected.
+    await expect(store.updateIntent(SID, intent, { title: '   ' }))
+      .rejects.toMatchObject({ code: 'invalid-record' })
+    await expect(store.updateIntent(SID, intent, { status: 'finished' as never }))
+      .rejects.toMatchObject({ code: 'invalid-record' })
+    await expect(store.updateCredential(SID, 'cred-1', { status: 'works' as never }))
+      .rejects.toMatchObject({ code: 'invalid-record' })
+
+    // Close the engagement, then retest — updates must not need an open goal.
+    await store.closeGoal(SID, { outcome: 'achieved' })
+    await expect(store.retestFinding(SID, finding, { outcome: 'fixed', notes: 'post-close verify' }))
+      .resolves.toMatchObject({ status: 'fixed' })
+  })
 })
