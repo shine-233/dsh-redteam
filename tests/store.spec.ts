@@ -375,4 +375,43 @@ describe('EngagementStore', () => {
     // Graph still renders the closed engagement's chain.
     expect(store.graph(SID).nodes).toHaveLength(2)
   })
+
+  it('registers artifacts with refs and includes them in counts and submit', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const intent = await store.addIntent(SID, { title: 'web' })
+    const asset = await store.addAsset(SID, { type: 'host', value: '10.0.0.7' })
+
+    const art = await store.addArtifact(SID, {
+      kind: 'exploit', location: '/tmp/exploit.py', description: 'rce chain',
+      intentId: intent, assetId: asset,
+    })
+    expect(art).toBe('art-1')
+    await expect(store.addArtifact(SID, {
+      kind: 'dump', location: '/tmp/dump.sql', assetId: 'asset-nope',
+    })).rejects.toMatchObject({ code: 'missing-ref' })
+
+    // Artifacts ride the two-phase submit with intra-batch asset refs.
+    const submitted = await store.submit(SID, {
+      intentId: intent,
+      assets: [{ type: 'service', value: 'https://example.net' }],
+      artifacts: [{ kind: 'screenshot', location: '/tmp/panel.png', assetId: 'asset-2' }],
+      facts: [{ detail: 'panel exposed', evidenceIds: [] }],
+    })
+    expect(submitted.artifacts).toEqual(['art-2'])
+
+    // Atomicity covers artifacts too.
+    await expect(store.submit(SID, {
+      intentId: intent,
+      artifacts: [{ kind: 'log', location: '/tmp/keep.log' }],
+      findings: [{
+        title: 'bad', severity: 'low', description: '', reproducibleSteps: ['s'],
+        techniqueIds: ['NOT-MITRE'],
+      }],
+    })).rejects.toMatchObject({ code: 'invalid-record' })
+    expect(store.counts(SID).artifacts).toBe(2)
+
+    // Projection view carries them.
+    expect(store.projection(SID).artifacts.map((a) => a.id)).toEqual(['art-1', 'art-2'])
+  })
 })

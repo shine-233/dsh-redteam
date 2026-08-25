@@ -134,6 +134,7 @@ describe('redteam tools', () => {
       credentials: ['cred-1'],
       facts: ['fact-1'],
       findings: ['finding-1'],
+      artifacts: [],
     })
     expect(exec.events.filter((e) => e.event.startsWith('redteam'))).toHaveLength(0)
 

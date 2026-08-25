@@ -12,6 +12,7 @@
 
 import type { Domain } from '@deepseek-ai/dsh-storage-domain'
 import type {
+  ArtifactRecord,
   AssetRecord,
   CredentialRecord,
   EdgeRelation,
@@ -28,8 +29,9 @@ import type {
   RedteamViewNode,
   Severity,
 } from './types.js'
-import { CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, INTENT_STATUSES } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, INTENT_STATUSES } from './types.js'
 import {
+  artifactSchema,
   assetSchema,
   credentialSchema,
   evidenceSchema,
@@ -103,6 +105,15 @@ export interface NewCredential {
   evidenceIds?: string[]
 }
 
+export interface NewArtifact {
+  kind: import('./types.js').ArtifactKind
+  /** Path / url / short identifier of the deliverable. */
+  location: string
+  description?: string
+  intentId?: string
+  assetId?: string
+}
+
 export interface SubmitBatch {
   intentId: string
   evidence?: NewEvidence[]
@@ -110,6 +121,7 @@ export interface SubmitBatch {
   assets?: NewAsset[]
   findings?: NewFinding[]
   credentials?: NewCredential[]
+  artifacts?: NewArtifact[]
 }
 
 export interface SubmitResult {
@@ -119,10 +131,11 @@ export interface SubmitResult {
   assets: string[]
   findings: string[]
   credentials: string[]
+  artifacts: string[]
 }
 
 type RecordTable =
-  | 'goals' | 'intents' | 'facts' | 'assets' | 'findings' | 'evidence' | 'credentials'
+  | 'goals' | 'intents' | 'facts' | 'assets' | 'findings' | 'evidence' | 'credentials' | 'artifacts'
 
 const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   intents: 'intent',
@@ -131,6 +144,7 @@ const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   findings: 'finding',
   evidence: 'ev',
   credentials: 'cred',
+  artifacts: 'art',
 }
 
 interface Sessioned {
@@ -447,6 +461,29 @@ export class EngagementStore {
     return id
   }
 
+  /** Register a deliverable produced by the engagement (loot/exploit/dump…). */
+  async addArtifact(sessionId: string, input: NewArtifact): Promise<string> {
+    this.requireActiveGoal(sessionId)
+    if (input.intentId !== undefined && input.intentId !== '') {
+      this.requireIntent(sessionId, input.intentId)
+    }
+    if (input.assetId !== undefined && input.assetId !== '') {
+      this.requireAsset(sessionId, input.assetId)
+    }
+    const id = this.nextId('artifacts', sessionId)
+    const parsed = artifactSchema.parse({
+      sessionId,
+      kind: input.kind,
+      location: input.location,
+      ...(input.description !== undefined ? { description: input.description } : {}),
+      ...(input.intentId !== undefined && input.intentId !== '' ? { intentId: input.intentId } : {}),
+      ...(input.assetId !== undefined && input.assetId !== '' ? { assetId: input.assetId } : {}),
+      createdAt: Date.now(),
+    })
+    await this.put('artifacts', id, parsed as ArtifactRecord)
+    return id
+  }
+
   /**
    * Task-tree transition on an intent (status/title/rationale). Only the
    * provided fields change; `closedAt`-style append-only history is not
@@ -585,6 +622,17 @@ export class EngagementStore {
       }
       credN += 1
     }
+    for (const item of batch.artifacts ?? []) {
+      if (!ARTIFACT_KINDS.includes(item.kind)) {
+        throw new StoreError('invalid-record', `invalid artifact kind: '${item.kind}'`)
+      }
+      if (item.location === undefined || item.location === '') {
+        throw new StoreError('invalid-record', 'artifact location must not be empty')
+      }
+      if (item.assetId !== undefined && item.assetId !== '' && !assetIds.has(item.assetId)) {
+        throw new StoreError('missing-ref', `asset '${item.assetId}' does not exist in this session`)
+      }
+    }
     for (const item of batch.facts ?? []) {
       if (item.detail === undefined || item.detail === '') {
         throw new StoreError('invalid-record', 'fact detail must not be empty')
@@ -621,7 +669,7 @@ export class EngagementStore {
     }
 
     // ── phase 2: execute — phase 1 guarantees no mid-batch failure ──
-    const result: SubmitResult = { intentId: batch.intentId, evidence: [], facts: [], assets: [], findings: [], credentials: [] }
+    const result: SubmitResult = { intentId: batch.intentId, evidence: [], facts: [], assets: [], findings: [], credentials: [], artifacts: [] }
     for (const item of batch.evidence ?? []) {
       result.evidence.push(await this.addEvidence(sessionId, item))
     }
@@ -630,6 +678,9 @@ export class EngagementStore {
     }
     for (const item of batch.credentials ?? []) {
       result.credentials.push(await this.addCredential(sessionId, item))
+    }
+    for (const item of batch.artifacts ?? []) {
+      result.artifacts.push(await this.addArtifact(sessionId, item))
     }
     for (const item of batch.facts ?? []) {
       result.facts.push(await this.addFact(sessionId, batch.intentId, item))
@@ -692,6 +743,7 @@ export class EngagementStore {
       findings: this.rowsInWindow('findings', sessionId, w).length,
       evidence: this.rowsInWindow('evidence', sessionId, w).length,
       credentials: this.rowsInWindow('credentials', sessionId, w).length,
+      artifacts: this.rowsInWindow('artifacts', sessionId, w).length,
     }
   }
 
@@ -827,6 +879,14 @@ export class EngagementStore {
       assetId: c.assetId ?? null,
       status: c.status as import('./types.js').CredentialStatus,
     }))
+    const records = this.engagementRecords(sessionId)
+    const artifacts = records.artifacts.map(([id, a]) => ({
+      id,
+      kind: a.kind,
+      location: a.location,
+      intentId: a.intentId ?? null,
+      assetId: a.assetId ?? null,
+    }))
     return {
       goal: goal === undefined
         ? null
@@ -839,6 +899,7 @@ export class EngagementStore {
       assets: graph.assets,
       findings,
       credentials,
+      artifacts,
       edges: graph.edges,
       counts: graph.counts,
     }
@@ -887,6 +948,7 @@ export class EngagementStore {
       findings: this.rowsInWindow('findings', sid, win).length,
       evidence: this.rowsInWindow('evidence', sid, win).length,
       credentials: this.rowsInWindow('credentials', sid, win).length,
+      artifacts: this.rowsInWindow('artifacts', sid, win).length,
     }
   }
 
@@ -899,10 +961,11 @@ export class EngagementStore {
     findings: [string, FindingRecord][]
     evidence: [string, EvidenceRecord][]
     credentials: [string, CredentialRecord][]
+    artifacts: [string, ArtifactRecord][]
   } {
     const win = this.windowOf(sessionId)
     if (win === null) {
-      return { goal: null, intents: [], facts: [], assets: [], findings: [], evidence: [], credentials: [] }
+      return { goal: null, intents: [], facts: [], assets: [], findings: [], evidence: [], credentials: [], artifacts: [] }
     }
     return {
       goal: (({ id: _id, ...rest }) => rest)(this.currentGoal(sessionId)!),
@@ -912,6 +975,7 @@ export class EngagementStore {
       findings: this.rowsInWindow('findings', sessionId, win) as [string, FindingRecord][],
       evidence: this.rowsInWindow('evidence', sessionId, win) as [string, EvidenceRecord][],
       credentials: this.rowsInWindow('credentials', sessionId, win) as [string, CredentialRecord][],
+      artifacts: this.rowsInWindow('artifacts', sessionId, win) as [string, ArtifactRecord][],
     }
   }
 
@@ -941,4 +1005,5 @@ const EMPTY_COUNTS: EngagementCounts = {
   findings: 0,
   evidence: 0,
   credentials: 0,
+  artifacts: 0,
 }

@@ -10,6 +10,7 @@ import { ChainGraph } from './ChainGraph.js'
 import { FindingsView } from './FindingsView.js'
 import { CredentialsView } from './CredentialsView.js'
 import { AssetsView } from './AssetsView.js'
+import { ArtifactsView } from './ArtifactsView.js'
 import { ReportView } from './ReportView.js'
 
 export interface RedteamViewProps {
@@ -22,6 +23,7 @@ const TABS = [
   { id: 'findings', label: '漏洞' },
   { id: 'assets', label: '资产' },
   { id: 'credentials', label: '凭据' },
+  { id: 'artifacts', label: '产物' },
   { id: 'report', label: '报告' },
 ] as const
 
@@ -134,6 +136,7 @@ export function RedteamView(props: RedteamViewProps): React.ReactNode {
         <span>漏洞<b>{counts.findings}</b></span>
         <span>凭据<b>{counts.credentials}</b></span>
         <span>证据<b>{counts.evidence}</b></span>
+        <span>产物<b>{counts.artifacts}</b></span>
       </div>
       {(projection.nodes.some((n) => n.kind === 'intent' && n.status !== 'active') ||
         projection.findings.some((f) => f.status === 'fixed')) && (
@@ -170,6 +173,7 @@ export function RedteamView(props: RedteamViewProps): React.ReactNode {
         {tab === 'chain' && <ChainGraph projection={projection} />}
         {tab === 'findings' && <FindingsView projection={projection} />}
         {tab === 'assets' && <AssetsView projection={projection} />}
+        {tab === 'artifacts' && <ArtifactsView projection={projection} />}
         {tab === 'report' && <ReportView projection={projection} sessionId={props.sessionId} />}
       </div>
     </div>

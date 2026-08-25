@@ -8,8 +8,8 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, INTENT_STATUSES, PHASES, SEVERITIES } from './types.js'
-import type { EngagementStore, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, SubmitResult } from './store.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, INTENT_STATUSES, PHASES, SEVERITIES } from './types.js'
+import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, SubmitResult } from './store.js'
 import { maskSecret } from './secrets.js'
 
 export interface ToolDeps {
@@ -101,6 +101,20 @@ const credentialItems = {
     assetId: { type: 'string', description: 'Asset id the credential belongs to.' },
     status: { type: 'string', enum: [...CREDENTIAL_STATUSES], description: 'Default unverified.' },
     notes: { type: 'string' },
+  },
+} as const
+
+const artifactItems = {
+  type: 'object', required: true, additionalProperties: false,
+  properties: {
+    kind: {
+      type: 'string', required: true, enum: [...ARTIFACT_KINDS],
+      description: 'Deliverable kind: file / screenshot / log / report / exploit / dump / other.',
+    },
+    location: { type: 'string', required: true, description: 'Path, url, or short identifier of the deliverable.' },
+    description: { type: 'string', description: 'What it is and why it matters.' },
+    intentId: { type: 'string', description: 'Intent that produced it.' },
+    assetId: { type: 'string', description: 'Asset it belongs to.' },
   },
 } as const
 
@@ -238,6 +252,18 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     execute: (args, exec) => withStore(exec, async (store, sid) => ({ credentialId: await store.addCredential(sid, args) }), args),
   })
 
+  const addArtifact = defineTool<NewArtifact, { artifactId: string }>({
+    name: 'redteam_add_artifact',
+    description:
+      'Register a deliverable produced by the engagement: loot file, saved screenshot, log, report draft, exploit script, data dump. Distinct from evidence — artifacts are outputs of the work; evidence backs claims about it.',
+    parameters: { ...artifactItems.properties },
+    output: {
+      schema: {},
+      render: (_a, v) => [{ type: 'text', text: `artifact ${v.artifactId} registered` }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid) => ({ artifactId: await store.addArtifact(sid, args) }), args),
+  })
+
   const updateIntent = defineTool<{
     intentId: string; status?: (typeof INTENT_STATUSES)[number]; title?: string; rationale?: string
   }, { intentId: string; status: string }>({
@@ -321,24 +347,25 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
 
   const submit = defineTool<{
     intentId: string; evidence?: NewEvidence[]; facts?: NewFact[]; assets?: NewAsset[]
-    findings?: NewFinding[]; credentials?: NewCredential[]
+    findings?: NewFinding[]; credentials?: NewCredential[]; artifacts?: NewArtifact[]
   }, SubmitResult>({
     name: 'redteam_submit',
     description:
-      'Batch-write confirmed results to one parent intent (subagent entry point). Within one batch: evidence mints first, then assets and credentials; facts/findings may cite fresh evidenceIds and asset ids. Never resubmit duplicates.',
+      'Batch-write confirmed results to one parent intent (subagent entry point). Within one batch: evidence mints first, then assets, credentials and artifacts; facts/findings may cite fresh evidenceIds and asset ids. Never resubmit duplicates.',
     parameters: {
       intentId: { type: 'string', required: true, description: 'Parent intent id assigned by the commander.' },
       evidence: { type: 'array', items: evidenceItems, description: 'New evidence created before facts/findings.' },
       facts: { type: 'array', items: factItems },
       assets: { type: 'array', items: assetItems },
       credentials: { type: 'array', items: credentialItems },
+      artifacts: { type: 'array', items: artifactItems },
       findings: { type: 'array', items: findingItems },
     },
     output: {
       schema: {},
       render: (_a, v) => [{
         type: 'text',
-        text: `submitted → evidence ${v.evidence.length}, assets ${v.assets.length}, credentials ${v.credentials.length}, facts ${v.facts.length}, findings ${v.findings.length}`,
+        text: `submitted → evidence ${v.evidence.length}, assets ${v.assets.length}, credentials ${v.credentials.length}, artifacts ${v.artifacts.length}, facts ${v.facts.length}, findings ${v.findings.length}`,
       }],
     },
     execute: (args, exec) => withStore(exec, async (store, sid, a) => await store.submit(sid, a), args),
@@ -408,8 +435,8 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
 
   return [
     addGoal, addIntent, addEvidence, addFact, addAsset, addFinding,
-    addCredential, updateIntent, retestFinding, updateCredential, closeGoal,
-    submit, state, graph, report, engagements,
+    addCredential, addArtifact, updateIntent, retestFinding, updateCredential,
+    closeGoal, submit, state, graph, report, engagements,
   ]
 }
 
@@ -435,6 +462,7 @@ async function jsonReport(store: import('./store.js').EngagementStore, sid: stri
     findings: Object.fromEntries(records.findings),
     evidence: Object.fromEntries([...evById].map(([id, e]) => [id, e])),
     credentials: store.maskedCredentials(sid),
+    artifacts: Object.fromEntries(records.artifacts),
   }
 }
 
@@ -534,9 +562,9 @@ async function markdownReport(
   const c = store.counts(sid)
   lines.push('## 概览 / Overview')
   lines.push('')
-  lines.push(`| intents | facts | assets | findings | evidence | credentials |`)
-  lines.push(`|---|---|---|---|---|---|`)
-  lines.push(`| ${c.intents} | ${c.facts} | ${c.assets} | ${c.findings} | ${c.evidence} | ${c.credentials} |`)
+  lines.push(`| intents | facts | assets | findings | evidence | credentials | artifacts |`)
+  lines.push(`|---|---|---|---|---|---|---|`)
+  lines.push(`| ${c.intents} | ${c.facts} | ${c.assets} | ${c.findings} | ${c.evidence} | ${c.credentials} | ${c.artifacts} |`)
   lines.push('')
 
   const bySeverity = new Map<string, number>()
@@ -644,6 +672,19 @@ async function markdownReport(
   }
   lines.push('')
 
+  lines.push('## 产物 / Artifacts')
+  lines.push('')
+  if (r.artifacts.length === 0) lines.push('(none)')
+  else {
+    lines.push('| id | kind | location | intent | asset | description |')
+    lines.push('|---|---|---|---|---|---|')
+    for (const [id, a] of r.artifacts) {
+      const desc = (a.description ?? '').replace(/\|/g, '\\|').slice(0, 120)
+      lines.push(`| \`${id}\` | ${a.kind} | ${a.location} | ${a.intentId ?? ''} | ${a.assetId ?? ''} | ${desc} |`)
+    }
+  }
+  lines.push('')
+
   lines.push('## 时间线 / Timeline')
   lines.push('')
   type TimelineEntry = { at: number; line: string }
@@ -652,6 +693,7 @@ async function markdownReport(
   for (const [id, a] of r.assets) timeline.push({ at: a.createdAt, line: `\`${id}\` 资产 / asset — ${a.type} ${a.value}` })
   for (const [id, f] of r.facts) timeline.push({ at: f.createdAt, line: `\`${id}\` 事实 / fact — ${f.detail.slice(0, 120)}` })
   for (const [id, cr] of r.credentials) timeline.push({ at: cr.createdAt, line: `\`${id}\` 凭据 / credential — ${cr.kind} (${maskSecret(cr.secret)})` })
+  for (const [id, a] of r.artifacts) timeline.push({ at: a.createdAt, line: `\`${id}\` 产物 / artifact — ${a.kind} ${a.location}` })
   for (const [id, f] of r.findings) timeline.push({ at: f.createdAt, line: `\`${id}\` 漏洞 / finding — [${f.severity.toUpperCase()}] ${f.title}` })
   timeline.sort((a, b) => a.at - b.at)
   if (timeline.length === 0) lines.push('(none)')

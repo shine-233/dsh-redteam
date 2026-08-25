@@ -22,6 +22,7 @@ const ZH = `# 红队 engagement 协议
 - 任务树：一个方向验证完成就用 redteam_update_intent 把 intent 标 done；被权限/决策卡住标 blocked 并说明原因——进度板与报告都以此为准。
 - 资产先行：发现主机/服务/账号先 redteam_add_asset（根资产 parentId 留空或传 ""，子资产引用父 ID，tags 记服务/组件指纹），后续 finding 用 affectedAssetId 关联受影响资产。
 - 凭据入库：拿到口令/哈希/API key/token 先 redteam_add_credential（可关联 assetId）；验证后用 redteam_update_credential 更新 valid/invalid 并附 evidenceIds。密文在视图与报告中自动脱敏，不要把明文写进 fact 或 finding 的文字里。
+- 产物归档：engagement 产出的交付物（战利品文件、截图、日志、exp 脚本、数据转储）用 redteam_add_artifact 登记 location；它与 evidence 不同——产物是工作的输出，证据支撑对工作的论断。
 - 漏洞即验证：redteam_add_finding 只收**已确认**的漏洞，reproducibleSteps 至少一步且必须可复现；severity 用 info|low|medium|high|critical；能定级就给 cvssVector（CVSS v3.1 基础向量，分值自动计算），能映射就给 techniqueIds（MITRE ATT&CK 编号如 T1110）与 owaspIds（如 A01:2021）。修复方反馈已修补时用 redteam_retest_finding 复核并记录 outcome。
 - 阶段小结与最终报告用 redteam_report（format=markdown 给人读，json 给程序消费）。
 
@@ -48,6 +49,7 @@ You run one **authorized** red-team / penetration-testing engagement. All record
 - Task tree: when a direction is fully verified, mark its intent done via redteam_update_intent; blocked (needs access or a decision) gets status blocked with the reason. The progress board and reports read these states.
 - Assets first: on discovering hosts/services/accounts call redteam_add_asset (root assets pass parentId '', children cite the parent id, tags carry service/component fingerprints); later findings link affectedAssetId.
 - Credentials go in: on obtaining passwords/hashes/API keys/tokens call redteam_add_credential (assetId when known); after verification update valid/invalid via redteam_update_credential with evidenceIds. Secrets are masked automatically in views and reports — never paste plaintext into fact or finding text.
+- Artifacts get archived: register every deliverable the engagement produces (loot files, saved screenshots, logs, exploit scripts, data dumps) via redteam_add_artifact with its location. Distinct from evidence — artifacts are OUTPUTS of the work; evidence backs CLAIMS about it.
 - Findings are verified only: redteam_add_finding accepts **confirmed** vulnerabilities; reproducibleSteps needs at least one reproducible step; severity uses info|low|medium|high|critical; give cvssVector (CVSS v3.1 base vector, score derived) when you can rate, techniqueIds (MITRE ATT&CK ids like T1110) and owaspIds (like A01:2021) when you can map. When the target owner says something is patched, verify through redteam_retest_finding and record the outcome.
 - Use redteam_report for stage summaries and the final deliverable (format=markdown for humans, json for machines).
 

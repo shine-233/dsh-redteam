@@ -69,6 +69,7 @@ describe('bundle manifest', () => {
     // The fence covers the full write surface, not just the add_* tools.
     for (const fenced of [
       'redteam_add_credential',
+      'redteam_add_artifact',
       'redteam_update_intent',
       'redteam_retest_finding',
       'redteam_update_credential',

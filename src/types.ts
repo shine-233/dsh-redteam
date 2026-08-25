@@ -41,6 +41,18 @@ export type FindingStatus = (typeof FINDING_STATUSES)[number]
 export const GOAL_OUTCOMES = ['achieved', 'partial', 'not-achieved'] as const
 export type GoalOutcome = (typeof GOAL_OUTCOMES)[number]
 
+/** Kinds of deliverables produced by the engagement (PentAGI-style artifacts). */
+export const ARTIFACT_KINDS = [
+  'file',
+  'screenshot',
+  'log',
+  'report',
+  'exploit',
+  'dump',
+  'other',
+] as const
+export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
+
 export interface GoalRecord {
   readonly sessionId: string
   readonly objective: string
@@ -144,6 +156,22 @@ export interface CredentialRecord {
   readonly createdAt: number
 }
 
+/**
+ * Deliverable produced during the engagement — loot files, saved
+ * screenshots, logs, exploit scripts, data dumps. Distinct from evidence:
+ * artifacts are OUTPUTS of the work, evidence backs CLAIMS about it.
+ */
+export interface ArtifactRecord {
+  readonly sessionId: string
+  readonly kind: ArtifactKind
+  /** Where the artifact lives (path / url / short identifier). */
+  readonly location: string
+  readonly description?: string | undefined
+  readonly intentId?: string | undefined
+  readonly assetId?: string | undefined
+  readonly createdAt: number
+}
+
 /** Edge relations derived from record references at read time. */
 export type EdgeRelation = 'spawns' | 'yields' | 'derived_from' | 'proves' | 'parent' | 'depends_on'
 
@@ -160,6 +188,7 @@ export interface EngagementCounts {
   readonly findings: number
   readonly evidence: number
   readonly credentials: number
+  readonly artifacts: number
 }
 
 /** Summary returned by `redteam_state`. */
@@ -215,6 +244,15 @@ export interface RedteamViewCredential {
   readonly status: CredentialStatus
 }
 
+/** Artifact as seen by the Web tab. */
+export interface RedteamViewArtifact {
+  readonly id: string
+  readonly kind: ArtifactKind
+  readonly location: string
+  readonly intentId: string | null
+  readonly assetId: string | null
+}
+
 export interface RedteamProjection {
   readonly goal: {
     objective: string
@@ -225,6 +263,7 @@ export interface RedteamProjection {
   readonly assets: readonly RedteamViewAsset[]
   readonly findings: readonly RedteamViewFinding[]
   readonly credentials: readonly RedteamViewCredential[]
+  readonly artifacts: readonly RedteamViewArtifact[]
   readonly edges: readonly GraphEdge[]
   readonly counts: EngagementCounts
 }

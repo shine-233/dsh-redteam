@@ -15,6 +15,7 @@
 import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type {
+  ArtifactRecord,
   AssetRecord,
   CredentialRecord,
   EvidenceRecord,
@@ -24,6 +25,7 @@ import type {
   IntentRecord,
 } from './types.js'
 import {
+  ARTIFACT_KINDS,
   CREDENTIAL_KINDS,
   CREDENTIAL_STATUSES,
   EVIDENCE_KINDS,
@@ -126,6 +128,16 @@ export const credentialSchema = z.object({
   createdAt: isoTime,
 })
 
+export const artifactSchema = z.object({
+  sessionId: z.string(),
+  kind: z.enum(ARTIFACT_KINDS),
+  location: z.string().min(1),
+  description: z.string().optional(),
+  intentId: z.string().optional(),
+  assetId: z.string().optional(),
+  createdAt: isoTime,
+})
+
 export const redteamDomainSpec = defineDomain({
   name: 'redteam',
   version: REDTEAM_DOMAIN_VERSION,
@@ -137,5 +149,6 @@ export const redteamDomainSpec = defineDomain({
     findings: domainTable<string, FindingRecord>(findingSchema),
     evidence: domainTable<string, EvidenceRecord>(evidenceSchema),
     credentials: domainTable<string, CredentialRecord>(credentialSchema),
+    artifacts: domainTable<string, ArtifactRecord>(artifactSchema),
   },
 })

@@ -42,6 +42,9 @@ dsh plugin --profile web add file:C:\path\to\dsh-redteam-0.3.0.tgz
 | 多步攻击链依赖 | 无（ARTEX planner todolist 风格） | intent 用 `dependsOn` 声明前置步骤（注入→取凭据→横向→提权），图中虚线呈现 |
 | 目标显式结论 | 无（ARTEX prove_goal 风格） | `redteam_close_goal` 以 achieved/partial/not-achieved 收尾并留摘要，报告头部与历史列表引用；**收尾后报告/状态/图仍可完整读取** |
 | SARIF 导出 | 无 | `redteam_report format=sarif` 输出 SARIF 2.1.0（GitHub/GitLab code scanning 可直接摄取），CVSS 映射 security-severity，ATT&CK/OWASP 作为 tags |
+| 产物追踪 | Artifact 实体（PentAGI ER 模型） | `redteam_add_artifact` 登记 engagement 的交付物（战利品/截图/日志/exp 脚本/转储），与 evidence 区分：产物是输出，证据支撑论断；Web 产物标签页 + 报告产物表 |
+| 提交事务性 | 无对照 | `redteam_submit` 两阶段提交——批内任何校验失败零残留，子代理重试不会产生重复记录 |
+| 收尾后可读 | 无对照 | `redteam_close_goal` 之后 state/graph/report 仍完整可读（最终报告工作流） |
 
 ## 架构速览
 

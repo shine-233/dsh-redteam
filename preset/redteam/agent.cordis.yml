@@ -133,6 +133,7 @@
           {"intentId":"…","evidence":[{"kind":"command|output|screenshot|file|url|note","content":"…","label":"…"}],
            "assets":[{"type":"…","value":"…","parentId":"asset-1"}],
            "credentials":[{"kind":"password|hash|api-key|token|ssh-key|other","secret":"…","username":"…","assetId":"asset-1"}],
+           "artifacts":[{"kind":"file|screenshot|log|report|exploit|dump|other","location":"...","assetId":"asset-1"}],
            "facts":[{...,"evidenceIds":["ev-1"]}],
            "findings":[{"title":"…","severity":"low|medium|high|critical","description":"…",
                         "reproducibleSteps":["…"],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
@@ -149,6 +150,7 @@
             - redteam_add_asset
             - redteam_add_finding
             - redteam_add_credential
+            - redteam_add_artifact
             - redteam_update_intent
             - redteam_retest_finding
             - redteam_update_credential
@@ -181,6 +183,7 @@
           {"intentId":"…","evidence":[{"kind":"command|output|screenshot|file|url|note","content":"…","label":"…"}],
            "assets":[{"type":"…","value":"…","parentId":"asset-1"}],
            "credentials":[{"kind":"password|hash|api-key|token|ssh-key|other","secret":"…","username":"…","assetId":"asset-1"}],
+           "artifacts":[{"kind":"file|screenshot|log|report|exploit|dump|other","location":"...","assetId":"asset-1"}],
            "facts":[{...,"evidenceIds":["ev-1"]}],
            "findings":[{"title":"…","severity":"low|medium|high|critical","description":"…",
                         "reproducibleSteps":["…"],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
@@ -197,6 +200,7 @@
             - redteam_add_asset
             - redteam_add_finding
             - redteam_add_credential
+            - redteam_add_artifact
             - redteam_update_intent
             - redteam_retest_finding
             - redteam_update_credential
@@ -258,9 +262,9 @@
 
 # ── red-team mode ───────────────────────────────────────────────────────────
 
-# The single redteam plugin: sixteen model-facing redteam_* tools on the host
-# tools registry, the redteam:protocol system-prompt section, and the standing
-# session-projection unit for the Web tab. Publishes no service; consumes the
-# host storageDomain facility; needs no realm.
+# The single redteam plugin: seventeen model-facing redteam_* tools on the
+# host tools registry, the redteam:protocol system-prompt section, and the
+# standing session-projection unit for the Web tab. Publishes no service;
+# consumes the host storageDomain facility; needs no realm.
 - id: redteam
   name: 'dsh-redteam/redteam'
