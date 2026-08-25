@@ -342,4 +342,97 @@ describe('redteam tools', () => {
     expect(body).toContain('凭据复用 / Credential reuse')
     expect(body).not.toContain('P@ssw0rdX')
   })
+
+  it('judges records against the structured scope registry', async () => {
+    const { registry, store } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'scoped', authorization: 'ROE-13' }, exec)
+    await registry.call('redteam_add_asset', { type: 'host', value: 'app.example.net' }, exec)
+    await registry.call('redteam_add_asset', { type: 'host', value: 'prod-db.example.net' }, exec)
+
+    const scope = await registry.call('redteam_add_scope', { kind: 'in', value: 'example.net' }, exec)
+    expect(scope.ok).toBe(true)
+    // Everything under example.net is in-scope so far.
+    expect(store.state('session-1').scope.violations).toEqual([])
+
+    const out = await registry.call(
+      'redteam_add_scope',
+      { kind: 'out', value: 'prod-db.example.net', note: 'ROE clause 4.2' },
+      exec,
+    )
+    expect(out.ok).toBe(true)
+    expect(out.value).toMatchObject({ violations: 1 })
+
+    const issues = store.state('session-1').scope.violations
+    expect(issues[0]).toMatchObject({
+      recordId: 'asset-2',
+      recordKind: 'asset',
+      value: 'prod-db.example.net',
+      reason: 'out-of-scope',
+      matched: 'prod-db.example.net',
+    })
+    expect(store.state('session-1').nextSteps.some((s) => s.includes('scope violation'))).toBe(true)
+
+    await registry.call('redteam_add_ioc', { type: 'domain', value: 'external.other.org' }, exec)
+    // With only an out entry present (plus in), external.other.org matches no
+    // in-entry → unscoped.
+    const after = store.state('session-1').scope.violations
+    expect(after.some((v) => v.recordKind === 'ioc' && v.reason === 'unscoped')).toBe(true)
+
+    const md = await registry.call('redteam_report', {}, exec)
+    expect((md.value as { body: string }).body).toContain('范围合规 / Scope compliance')
+    expect((md.value as { body: string }).body).toContain('⛔ 越界')
+
+    // Empty scope values are rejected.
+    const bad = await registry.call('redteam_add_scope', { kind: 'in', value: '   ' }, exec)
+    expect(bad.ok).toBe(false)
+  })
+
+  it('exports IOCs as CSV and a TAXII 2.1 envelope', async () => {
+    const { registry } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'csv/taxii', authorization: 'ROE-14' }, exec)
+    await registry.call('redteam_add_intent', { title: 'i' }, exec)
+    await registry.call('redteam_add_ioc', { type: 'ip', value: '198.51.100.7', context: 'c2, beaconing' }, exec)
+    await registry.call('redteam_add_ioc', { type: 'url', value: 'http://x.example/p?a=1' }, exec)
+
+    const csv = await registry.call('redteam_report', { format: 'ioc-csv' }, exec)
+    expect(csv.ok).toBe(true)
+    const csvBody = (csv.value as { body: string }).body
+    const csvLines = csvBody.trim().split('\n')
+    expect(csvLines[0]).toBe('id,type,value,sample_id,intent_id,created_at,context')
+    expect(csvLines).toHaveLength(3)
+    expect(csvLines[1]).toContain('198.51.100.7')
+    // Context containing a comma must be quoted.
+    expect(csvLines[1]).toContain('"c2, beaconing"')
+
+    const taxii = await registry.call('redteam_report', { format: 'taxii' }, exec)
+    expect(taxii.ok).toBe(true)
+    const envelope = JSON.parse((taxii.value as { body: string }).body)
+    expect(envelope.more).toBe(false)
+    expect(envelope.data.filter((o: { type: string }) => o.type === 'indicator')).toHaveLength(2)
+    expect(envelope.data.some((o: { type: string }) => o.type === 'identity')).toBe(true)
+  })
+
+  it('renders a standalone HTML report with all sections', async () => {
+    const { registry } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'html page', authorization: 'ROE-15', scope: '*.example.net' }, exec)
+    await registry.call('redteam_add_intent', { title: 'probe', phase: 'recon' }, exec)
+    await registry.call('redteam_add_finding', {
+      intentId: 'intent-1', title: 'open redirect', severity: 'medium', description: '<script> alert',
+      reproducibleSteps: ['visit /?next=//evil.example'],
+    }, exec)
+    const html = await registry.call('redteam_report', { format: 'html', includeEvidence: true }, exec)
+    expect(html.ok).toBe(true)
+    const body = (html.value as { body: string }).body
+    expect(body.startsWith('<!DOCTYPE html>')).toBe(true)
+    expect(body).toContain('执行摘要 / Executive summary')
+    expect(body).toContain('范围合规 / Scope compliance')
+    expect(body).toContain('html page')
+    expect(body).toContain('ROE-15')
+    // User content is escaped.
+    expect(body).toContain('&lt;script&gt;')
+    expect(body).not.toContain('<script>')
+  })
 })

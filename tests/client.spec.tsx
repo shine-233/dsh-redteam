@@ -49,6 +49,13 @@ const projection: RedteamProjection = {
     { id: 'obj-1', title: '获取域管哈希', provenAt: 1720000000000 },
     { id: 'obj-2', title: '持久化驻留', provenAt: null },
   ],
+  scope: [
+    { id: 'scope-1', kind: 'in' as const, value: '*.corp.example', note: null },
+    { id: 'scope-2', kind: 'out' as const, value: 'prod-db.corp.example', note: null },
+  ],
+  scopeIssues: [
+    { recordId: 'asset-2', recordKind: 'finding' as const, value: 'portal.corp.example', reason: 'unscoped' as const, matched: '' },
+  ],
   edges: [
     { from: 'goal-1', to: 'intent-1', relation: 'spawns' },
     { from: 'goal-1', to: 'intent-2', relation: 'spawns' },

@@ -149,6 +149,44 @@ export function StatsView({ projection }: { projection: RedteamProjection }): Re
         </section>
       )}
 
+      <section className="rt-panel rt-anim" style={{ animationDelay: '220ms' }}>
+        <h3>范围合规 / Scope compliance</h3>
+        {projection.scope.length === 0 && projection.scopeIssues.length === 0 ? (
+          <p className="rt-hint">未登记结构化边界。redteam_add_scope kind=in/out 注册后，资产/漏洞/IOC 自动判定越界与漏登。</p>
+        ) : (
+          <>
+            <div className="rt-kind-chips">
+              <span className="rt-tech">in · {projection.scope.filter((s) => s.kind === 'in').length}</span>
+              <span className="rt-tech">out · {projection.scope.filter((s) => s.kind === 'out').length}</span>
+              <span className={`rt-tech ${projection.scopeIssues.length > 0 ? 'rt-chip-bad' : ''}`}>
+                问题 · {projection.scopeIssues.length}
+              </span>
+            </div>
+            {projection.scopeIssues.length > 0 && (
+              <table className="rt-assets">
+                <thead>
+                  <tr><th>record</th><th>类型</th><th>值</th><th>判定</th></tr>
+                </thead>
+                <tbody>
+                  {projection.scopeIssues.map((v, i) => (
+                    <tr key={`${v.recordId}-${v.reason}`} className="rt-row-anim" style={{ animationDelay: `${i * 40}ms` }}>
+                      <td><code>{v.recordId}</code></td>
+                      <td>{v.recordKind}</td>
+                      <td><code>{v.value}</code></td>
+                      <td>
+                        {v.reason === 'out-of-scope'
+                          ? <span className="rt-scope-out">⛔ 越界 → {v.matched}</span>
+                          : <span className="rt-untested">⚠ 未在 in-scope 清单</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        )}
+      </section>
+
       <section className="rt-panel rt-anim" style={{ animationDelay: '240ms' }}>
         <h3>Kill-chain 阶段分布</h3>
         <div className="rt-lanes">

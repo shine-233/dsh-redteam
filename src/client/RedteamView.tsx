@@ -90,6 +90,10 @@ const styles = `
 .rt-goal { padding:8px 10px; border:1px solid var(--dsw-border,#2a3138); border-radius:8px; margin-bottom:10px;
   animation:rtFadeUp .35s both; }
 .rt-goal .auth { color:var(--dsw-warning,#e0a94e); font-size:12px; margin-top:4px; word-break:break-all; }
+.rt-scope-alert { margin-top:6px; padding:4px 8px; border:1px solid #ff5c5c66; border-radius:6px;
+  background:rgba(255,92,92,.08); color:#ff5c5c; font-size:12px; font-weight:600; animation:rtFadeUp .3s both; }
+.rt-chip-bad { border-color:#ff5c5c88 !important; color:#ff5c5c !important; }
+.rt-scope-out { color:#ff5c5c; font-size:11px; }
 
 .rt-canvas-wrap { position:relative; height:min(62vh, 520px); min-height:340px;
   border:1px solid var(--dsw-border,#2a3138); border-radius:10px; overflow:hidden;
@@ -221,6 +225,9 @@ export function RedteamView(props: RedteamViewProps): React.ReactNode {
       <div className="rt-goal">
         <strong>{projection.goal.objective}</strong>
         <div className="auth">授权 / Authorization: {projection.goal.authorization}</div>
+        {projection.scopeIssues.some((v) => v.reason === 'out-of-scope') && (
+          <div className="rt-scope-alert">⛔ {projection.scopeIssues.filter((v) => v.reason === 'out-of-scope').length} 条记录越界 — 详见「统计」范围合规面板</div>
+        )}
         {projection.goal.outcome !== null && (
           <div className={`rt-outcome rt-outcome-${projection.goal.outcome}`}>
             结论 / Outcome: {projection.goal.outcome}

@@ -7,9 +7,9 @@
  * time, so a record can never dangle without its edge.
  *
  * Version stays at 1 across additive schema evolution (new optional fields,
- * the credentials table): sqlite record tables materialize with CREATE TABLE
- * IF NOT EXISTS at open, and optional columns only ever appear on records
- * written after the upgrade — older databases open unchanged.
+ * the credentials and scope_entries tables): sqlite record tables materialize
+ * with CREATE TABLE IF NOT EXISTS at open, and optional columns only ever
+ * appear on records written after the upgrade — older databases open unchanged.
  */
 
 import { z } from 'zod'
@@ -27,6 +27,7 @@ import type {
   IocRecord,
   ObjectiveRecord,
   SampleRecord,
+  ScopeEntryRecord,
 } from './types.js'
 import {
   ARTIFACT_KINDS,
@@ -41,6 +42,7 @@ import {
   IOC_TYPES,
   PHASES,
   SAMPLE_KINDS,
+  SCOPE_KINDS,
   SEVERITIES,
 } from './types.js'
 import { ATTACK_TECHNIQUE_RE, CVE_ID_RE, CWE_ID_RE, MD5_RE, OWASP_CATEGORY_RE, SHA1_RE, SHA256_RE } from './cvss.js'
@@ -191,6 +193,14 @@ export const iocSchema = z.object({
   createdAt: isoTime,
 })
 
+export const scopeEntrySchema = z.object({
+  sessionId: z.string(),
+  kind: z.enum(SCOPE_KINDS),
+  value: z.string().min(1),
+  note: z.string().optional(),
+  createdAt: isoTime,
+})
+
 export const redteamDomainSpec = defineDomain({
   name: 'redteam',
   version: REDTEAM_DOMAIN_VERSION,
@@ -207,5 +217,6 @@ export const redteamDomainSpec = defineDomain({
     samples: domainTable<string, SampleRecord>(sampleSchema),
     iocs: domainTable<string, IocRecord>(iocSchema),
     objectives: domainTable<string, ObjectiveRecord>(objectiveSchema),
+    scope_entries: domainTable<string, ScopeEntryRecord>(scopeEntrySchema),
   },
 })

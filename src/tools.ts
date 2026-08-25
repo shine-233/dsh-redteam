@@ -9,9 +9,10 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { randomUUID } from 'node:crypto'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SEVERITIES } from './types.js'
-import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, NewHint, NewIoc, NewObjective, NewSample, SubmitResult } from './store.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS, SEVERITIES } from './types.js'
+import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, NewHint, NewIoc, NewObjective, NewSample, NewScopeEntry, SubmitResult } from './store.js'
 import { maskSecret } from './secrets.js'
+import { scopeMatches } from './scope.js'
 
 export interface ToolDeps {
   store: () => Promise<EngagementStore>
@@ -371,6 +372,30 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     execute: (args, exec) => withStore(exec, async (store, sid) => ({ objectiveId: await store.addObjective(sid, args) }), args),
   })
 
+  const addScopeEntry = defineTool<NewScopeEntry, { scopeId: string; violations: number }>({
+    name: 'redteam_add_scope',
+    description:
+      "Register one structured authorization-boundary entry: kind=in ('*.example.net', '10.0.0.0/24 note: internal range') or kind=out ('prod-db.example.net'). Assets/findings/IOCs are then judged against the registry — out-of-scope hits and unscoped targets surface in redteam_state, the Web 统计 tab and every report.",
+    parameters: {
+      kind: { type: 'string', required: true, enum: [...SCOPE_KINDS], description: "'in' allows, 'out' forbids." },
+      value: { type: 'string', required: true, description: 'Target pattern: host/domain/ip/url.' },
+      note: { type: 'string', description: 'Why this boundary exists (ROE clause reference).' },
+    },
+    output: {
+      schema: {},
+      render: (_a, v) => [{
+        type: 'text',
+        text: v.violations > 0
+          ? `scope ${v.scopeId} registered — ⚠ ${v.violations} existing record(s) now violate it`
+          : `scope ${v.scopeId} registered, no violations`,
+      }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      const scopeId = await store.addScopeEntry(sid, a)
+      return { scopeId, violations: store.scopeIssues(sid).length }
+    }, args),
+  })
+
   const proveObjective = defineTool<{
     objectiveId: string; proven?: boolean; evidenceIds?: string[]
   }, { objectiveId: string; provenAt: number | null }>({
@@ -533,14 +558,15 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
   })
 
   const report = defineTool<{
-    format?: 'markdown' | 'json' | 'sarif' | 'navlayer' | 'stix'; includeEvidence?: boolean
+    format?: 'markdown' | 'json' | 'sarif' | 'navlayer' | 'stix' | 'taxii' | 'ioc-csv' | 'html'
+    includeEvidence?: boolean
   }, { format: string; body: string }>({
     name: 'redteam_report',
     description:
-      'Render the engagement report for the current engagement (open or just closed). format=markdown (default) for humans, json for machines, sarif for GitHub/GitLab code-scanning ingestion, navlayer for MITRE ATT&CK Navigator layers, stix for STIX 2.1 IOC/vuln bundles; includeEvidence embeds raw evidence content in markdown.',
+      'Render the engagement report for the current engagement (open or just closed). format=markdown (default) for humans, html for a styled standalone page, json for machines, sarif for GitHub/GitLab code-scanning ingestion, navlayer for MITRE ATT&CK Navigator layers, stix for a STIX 2.1 bundle, taxii for the TAXII 2.1 collection envelope around those objects, ioc-csv for spreadsheet-friendly IOC rows; includeEvidence embeds raw evidence content in markdown/html.',
     parameters: {
-      format: { type: 'string', enum: ['markdown', 'json', 'sarif', 'navlayer', 'stix'], description: 'Default markdown.' },
-      includeEvidence: { type: 'boolean', description: 'Markdown only: append raw evidence appendix.' },
+      format: { type: 'string', enum: ['markdown', 'json', 'sarif', 'navlayer', 'stix', 'taxii', 'ioc-csv', 'html'], description: 'Default markdown.' },
+      includeEvidence: { type: 'boolean', description: 'Markdown/html only: append raw evidence appendix.' },
     },
     output: {
       schema: {},
@@ -556,7 +582,13 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
             ? await navLayerReport(store, sid)
             : format === 'stix'
               ? await stixReport(store, sid)
-              : await markdownReport(store, sid, a.includeEvidence ?? false)
+              : format === 'taxii'
+                ? await taxiiReport(store, sid)
+                : format === 'ioc-csv'
+                  ? await iocCsvReport(store, sid)
+                  : format === 'html'
+                    ? await htmlReport(store, sid, a.includeEvidence ?? false)
+                    : await markdownReport(store, sid, a.includeEvidence ?? false)
       if (format === 'markdown') exec.deferContext(reportDeferredNotice())
       return { format, body }
     }, args),
@@ -574,6 +606,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
   return [
     addGoal, addIntent, addEvidence, addFact, addAsset, addFinding,
     addCredential, addArtifact, addHint, addSample, addIoc, addObjective,
+    addScopeEntry,
     proveObjective, updateIntent, retestFinding, updateCredential, closeGoal,
     submit, state, graph, report, engagements,
   ]
@@ -759,12 +792,11 @@ function stixId(prefix: string): string {
   return `${prefix}--${randomUUID()}`
 }
 
-/**
- * Minimal valid STIX 2.1 bundle: one identity, one vulnerability per finding
- * (severity labels + CVE external references), and one indicator per IOC with
- * a standard capture pattern.
- */
-async function stixReport(store: import('./store.js').EngagementStore, sid: string): Promise<string> {
+/** Shared STIX 2.1 object builder (identity + vulnerabilities + indicators). */
+async function buildStixObjects(
+  store: import('./store.js').EngagementStore,
+  sid: string,
+): Promise<Record<string, unknown>[]> {
   const r = store.engagementRecords(sid)
   const now = new Date()
   const identityId = stixId('identity')
@@ -818,8 +850,229 @@ async function stixReport(store: import('./store.js').EngagementStore, sid: stri
       valid_from: created,
     })
   }
-  const bundle = { type: 'bundle', id: stixId('bundle'), objects }
+  return objects
+}
+
+/**
+ * STIX 2.1 bundle: one identity, one vulnerability per finding, and one
+ * indicator per IOC with a standard capture pattern.
+ */
+async function stixReport(store: import('./store.js').EngagementStore, sid: string): Promise<string> {
+  const bundle = { type: 'bundle', id: stixId('bundle'), objects: await buildStixObjects(store, sid) }
   return JSON.stringify(bundle, null, 2)
+}
+
+/**
+ * TAXII 2.1 collection-response envelope (`application/taxii+json`) wrapping
+ * the same STIX objects — drop-in body for a TAXII collection or for tools
+ * that speak the envelope shape (OpenCTI/MISP connectors).
+ */
+async function taxiiReport(store: import('./store.js').EngagementStore, sid: string): Promise<string> {
+  const envelope = { more: false, next: null, data: await buildStixObjects(store, sid) }
+  return JSON.stringify(envelope, null, 2)
+}
+
+/** CSV escape: quote when the cell contains separator/quote/newline. */
+function csvCell(value: string): string {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+}
+
+/**
+ * Spreadsheet-friendly IOC rows: one line per indicator with sample/intent
+ * linkage and timestamps — MISP/Cuckoo extraction workflows.
+ */
+async function iocCsvReport(store: import('./store.js').EngagementStore, sid: string): Promise<string> {
+  const r = store.engagementRecords(sid)
+  const lines = ['id,type,value,sample_id,intent_id,created_at,context']
+  for (const [id, i] of r.iocs) {
+    lines.push([
+      id, i.type, i.value, i.sampleId ?? '', i.intentId ?? '',
+      new Date(i.createdAt).toISOString(), i.context ?? '',
+    ].map(csvCell).join(','))
+  }
+  return `${lines.join('\n')}\n`
+}
+
+const SEV_COLOR: Record<string, string> = {
+  critical: '#ff5c5c', high: '#ff9350', medium: '#e0c04e', low: '#7fb069', info: '#8b95a1',
+}
+
+function htmlEscape(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/**
+ * Standalone HTML report: single self-contained page (inline CSS, no JS,
+ * system fonts) mirroring the markdown sections plus animated-free severity
+ * bars and a scope-compliance panel. Opens anywhere, prints fine.
+ */
+async function htmlReport(
+  store: import('./store.js').EngagementStore,
+  sid: string,
+  includeEvidence: boolean,
+): Promise<string> {
+  const r = store.engagementRecords(sid)
+  const st = store.state(sid)
+  const c = store.counts(sid)
+  const e = htmlEscape
+  const bySev = new Map<string, number>()
+  for (const [, f] of r.findings) bySev.set(f.severity, (bySev.get(f.severity) ?? 0) + 1)
+  const maxSev = Math.max(1, ...[...bySev.values()])
+  const totalAssets = st.coverage.tested.length + st.coverage.untested.length
+  const covPct = totalAssets > 0 ? Math.round(st.coverage.tested.length / totalAssets * 100) : null
+
+  const sevBars = SEVERITIES.map((s) => {
+    const n = bySev.get(s) ?? 0
+    return `<div class="bar-row"><span class="bar-label">${s}</span><div class="bar-track"><div class="bar-fill" style="width:${Math.round(n / maxSev * 100)}%;background:${SEV_COLOR[s]}"></div></div><span class="bar-n">${n}</span></div>`
+  }).join('')
+
+  const findingsHtml = [...r.findings]
+    .sort((a, b) => (SEV_ORDER[a[1].severity] ?? 9) - (SEV_ORDER[b[1].severity] ?? 9))
+    .map(([id, f]) => `
+      <article class="card finding">
+        <header><span class="sev" style="color:${SEV_COLOR[f.severity]}">${f.severity.toUpperCase()}</span>
+          <strong>${e(f.title)}</strong>
+          ${f.status === 'fixed' ? '<span class="tag ok">✅ fixed</span>' : ''}
+          ${f.duplicateOf !== undefined ? `<span class="tag">dup of ${e(f.duplicateOf)}</span>` : ''}
+          ${f.cvssScore !== undefined ? `<span class="tag">CVSS ${f.cvssScore}</span>` : ''}
+        </header>
+        <p class="desc">${e(f.description)}</p>
+        <ol class="steps">${f.reproducibleSteps.map((s) => `<li>${e(s)}</li>`).join('')}</ol>
+        <p class="meta"><code>${id}</code>${f.affectedAssetId !== undefined ? ` · asset <code>${e(f.affectedAssetId)}</code>` : ''}
+          ${(f.techniqueIds ?? []).length > 0 ? ` · ATT&CK ${f.techniqueIds!.map((t) => `<code>${t}</code>`).join(' ')}` : ''}
+          ${(f.cveIds ?? []).length > 0 ? ` · ${f.cveIds!.map((c) => `<code>${c}</code>`).join(' ')}` : ''}</p>
+        ${f.remediation !== undefined ? `<p class="remediation">修复建议 / Remediation: ${e(f.remediation)}</p>` : ''}
+      </article>`).join('')
+
+  const intentBlocks = [...r.intents].map(([id, i]) => {
+    const facts = r.facts.filter(([, f]) => f.intentId === id)
+    return `<section class="intent">
+      <h4><code>${id}</code> ${e(i.title)}${i.status !== undefined && i.status !== 'active' ? ` <span class="tag">${i.status}</span>` : ''}
+        ${i.phase !== undefined ? `<span class="tag">${i.phase}</span>` : ''}</h4>
+      ${i.rationale !== '' ? `<p class="meta">${e(i.rationale)}</p>` : ''}
+      ${facts.length > 0 ? `<ul class="facts">${facts.map(([fid, f]) => `<li><code>${fid}</code> ${e(f.detail.slice(0, 220))}</li>`).join('')}</ul>` : ''}
+    </section>`
+  }).join('')
+
+  const table = (headers: string[], rows: string[][]): string => rows.length === 0 ? '<p class="none">(none)</p>' : `
+    <table><thead><tr>${headers.map((x) => `<th>${x}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+
+  const reuseRows = st.credentialReuse.map((g) => [`<code>${e(g.mask)}</code>`, g.kinds.join(', '), g.targets.map((t) => `<code>${e(t)}</code>`).join(', ')])
+  const issueRows = st.scope.violations.map((v) => [
+    `<code>${e(v.recordId)}</code>`, v.recordKind, `<code>${e(v.value)}</code>`,
+    v.reason === 'out-of-scope' ? `<span class="bad">out-of-scope → ${e(v.matched)}</span>` : '<span class="warn">unscoped</span>',
+  ])
+
+  const timeline = (() => {
+    type Entry = { at: number; line: string }
+    const t: Entry[] = []
+    for (const [id, i] of r.intents) t.push({ at: i.createdAt, line: `${id} 意图 — ${i.title}` })
+    for (const [id, a] of r.assets) t.push({ at: a.createdAt, line: `${id} 资产 — ${a.type} ${a.value}` })
+    for (const [id, cr] of r.credentials) t.push({ at: cr.createdAt, line: `${id} 凭据 — ${cr.kind} (${maskSecret(cr.secret)})` })
+    for (const [id, sp] of r.samples) t.push({ at: sp.createdAt, line: `${id} 样本 — ${sp.sha256.slice(0, 16)}…` })
+    for (const [id, i] of r.iocs) t.push({ at: i.createdAt, line: `${id} IOC [${i.type}] — ${i.value}` })
+    for (const [id, f] of r.findings) t.push({ at: f.createdAt, line: `${id} 漏洞 [${f.severity.toUpperCase()}] — ${f.title}` })
+    t.sort((a, b) => a.at - b.at)
+    return `<ul class="timeline">${t.map((x) => `<li><span class="ts">${new Date(x.at).toISOString()}</span> ${e(x.line)}</li>`).join('') || '<li class="none">(none)</li>'}</ul>`
+  })()
+
+  const evidenceHtml = includeEvidence && r.evidence.length > 0
+    ? `<section><h3>附录：证据 / Evidence appendix</h3>${r.evidence.map(([id, ev]) => `
+        <details><summary><code>${id}</code> ${ev.kind} — ${e(ev.label)}</summary><pre>${e(ev.content.slice(0, 4000))}</pre></details>`).join('')}</section>`
+    : ''
+
+  const goalHeader = r.goal === null ? '' : `
+    <div class="goal">
+      <p><strong>${e(r.goal.objective)}</strong></p>
+      <p class="auth">授权 / Authorization: ${e(r.goal.authorization)}${r.goal.scope !== '' ? ` · 范围 / Scope: ${e(r.goal.scope)}` : ''}</p>
+      ${r.goal.outcome !== undefined ? `<p class="outcome">${r.goal.outcome === 'achieved' ? '✅' : r.goal.outcome === 'partial' ? '◐' : '✗'} ${r.goal.outcome}</p>` : ''}
+      ${r.goal.closingSummary !== undefined ? `<p class="meta">${e(r.goal.closingSummary)}</p>` : ''}
+    </div>`
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>红队报告 / Red-Team Report</title>
+<style>
+:root { color-scheme: dark; }
+* { box-sizing:border-box; }
+body { margin:0 auto; max-width:960px; padding:24px 20px 60px; font:14px/1.6 system-ui,"Segoe UI",sans-serif;
+  background:#12161b; color:#dbe2ea; }
+h1 { font-size:22px; border-bottom:2px solid #2a3138; padding-bottom:10px; }
+h2 { font-size:16px; margin-top:34px; color:#aab4bf; letter-spacing:.04em; border-bottom:1px solid #232a31; padding-bottom:6px; }
+h3 { font-size:14px; color:#aab4bf; }
+h4 { font-size:13px; margin:14px 0 4px; }
+code { background:#1b2026; border:1px solid #2a3138; border-radius:4px; padding:0 5px; font-size:12px; word-break:break-all; }
+pre { background:#1b2026; border-radius:8px; padding:10px; overflow:auto; }
+table { width:100%; border-collapse:collapse; margin:8px 0; font-size:13px; }
+th,td { text-align:left; padding:6px 10px; border-bottom:1px solid #232a31; }
+th { color:#8b95a1; font-weight:500; }
+.goal { border:1px solid #2a3138; border-radius:10px; padding:12px 14px; }
+.goal .auth { color:#e0a94e; font-size:12px; }
+.goal .outcome { font-weight:700; color:#7fb069; }
+.card { border:1px solid #2a3138; border-radius:10px; padding:12px 14px; margin:10px 0; break-inside:avoid; }
+.card header { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.sev { font-weight:800; letter-spacing:.06em; }
+.tag { background:#1b2026; border:1px solid #2a3138; border-radius:10px; padding:1px 8px; font-size:11px; color:#8b95a1; }
+.tag.ok { color:#7fb069; border-color:#4f7a55; }
+.desc { white-space:pre-wrap; }
+.steps,.facts,.timeline { padding-left:20px; }
+.meta { color:#8b95a1; font-size:12px; }
+.none { color:#8b95a1; }
+.bad { color:#ff5c5c; font-weight:600; } .warn { color:#e0c04e; }
+.bar-row { display:flex; align-items:center; gap:10px; margin:5px 0; }
+.bar-label { width:70px; color:#8b95a1; text-align:right; }
+.bar-track { flex:1; height:9px; background:#1b2026; border-radius:6px; overflow:hidden; }
+.bar-fill { height:100%; border-radius:6px; }
+.bar-n { width:30px; color:#8b95a1; font-variant-numeric:tabular-nums; }
+.chips { display:flex; gap:8px; flex-wrap:wrap; }
+.chip { background:#1b2026; border:1px solid #2a3138; border-radius:8px; padding:4px 10px; font-size:12px; color:#aab4bf; }
+.chip b { color:#dbe2ea; }
+details summary { cursor:pointer; margin:6px 0; }
+.ts { color:#8b95a1; font-family:ui-monospace,monospace; font-size:11px; }
+footer { margin-top:40px; color:#8b95a1; font-size:11px; }
+@media print { body { background:#fff; color:#111; } .card,.goal { border-color:#ccc; } code { background:#eee; } }
+</style></head><body>
+<h1>红队测试报告 / Red-Team Engagement Report</h1>
+${goalHeader}
+<h2>执行摘要 / Executive summary</h2>
+<p>意图 <b>${c.intents}</b> · 事实 <b>${c.facts}</b> · 资产 <b>${c.assets}</b> · 漏洞 <b>${c.findings}</b> · 凭据 <b>${c.credentials}</b> · IOC <b>${c.iocs}</b></p>
+<div class="chips">
+  <span class="chip">资产覆盖 <b>${covPct === null ? '—' : `${covPct}%`}</b></span>
+  <span class="chip">ATT&CK 证实 <b>${st.techniques.proven.length}</b> / 尝试 ${st.techniques.attempted.length}</span>
+  <span class="chip">凭据复用 <b>${st.credentialReuse.length}</b> 组</span>
+  <span class="chip">范围问题 <b>${st.scope.violations.length}</b></span>
+</div>
+${sevBars}
+<h2>探索链路 / Exploration chain</h2>
+${intentBlocks || '<p class="none">(none)</p>'}
+<h2>资产 / Assets</h2>
+${table(['id', 'type', 'value', 'parent', 'tags'], r.assets.map(([id, a]) => [`<code>${id}</code>`, a.type, e(a.value), a.parentId ?? '', (a.tags ?? []).join(', ')]))}
+<h2>漏洞 / Findings</h2>
+${findingsHtml || '<p class="none">(none)</p>'}
+<h2>凭据 / Credentials</h2>
+${table(['id', 'kind', 'username', 'target', 'status', 'secret'], r.credentials.map(([id, cr]) => [`<code>${id}</code>`, cr.kind, cr.username ?? '', cr.target ?? '', cr.status, maskSecret(cr.secret)]))}
+${reuseRows.length > 0 ? `<h3>凭据复用 / Credential reuse</h3>${table(['secret (masked)', 'kinds', 'targets'], reuseRows)}` : ''}
+<h2>产物 / Artifacts</h2>
+${table(['id', 'kind', 'location'], r.artifacts.map(([id, a]) => [`<code>${id}</code>`, a.kind, e(a.location)]))}
+<h2>样本 / Samples</h2>
+${table(['id', 'kind', 'location', 'sha256', 'type'], r.samples.map(([id, s]) => [`<code>${id}</code>`, s.kind, e(s.location), `<code>${s.sha256.slice(0, 16)}…</code>`, s.fileType ?? '']))}
+<h2>IOC 指标 / Indicators</h2>
+${table(['id', 'type', 'value', 'sample'], r.iocs.map(([id, i]) => [`<code>${id}</code>`, i.type, `<code>${e(i.value)}</code>`, i.sampleId ?? '']))}
+<h2>目标核对单 / Objectives</h2>
+<ul>${r.objectives.map(([id, o]) => `<li>${o.provenAt !== undefined ? '✅' : '⬜'} <code>${id}</code> ${e(o.title)}</li>`).join('') || '<li class="none">(none)</li>'}</ul>
+<h2>范围合规 / Scope compliance</h2>
+<p class="meta">登记条目 ${st.scope.entries}${issueRows.length > 0 ? ` · 问题 <b class="bad">${issueRows.length}</b>` : ' · 无问题'}</p>
+${table(['record', 'kind', 'value', '判定'], issueRows)}
+<h2>人工转向 / Human steering</h2>
+<ul>${r.hints.map(([id, h]) => `<li><code>${id}</code> [${h.source}] ${e(h.text)}</li>`).join('') || '<li class="none">(none)</li>'}</ul>
+<h2>时间线 / Timeline</h2>
+${timeline}
+${evidenceHtml}
+<footer>Generated ${new Date().toISOString()} · dsh-redteam · 记录以本地存储层为准，本页为窗口快照</footer>
+</body></html>
+`
 }
 
 async function markdownReport(
@@ -1043,6 +1296,22 @@ async function markdownReport(
     }
     lines.push('')
   }
+
+  const scopeIssueRows = store.scopeIssues(sid)
+  lines.push('## 范围合规 / Scope compliance')
+  lines.push('')
+  if (r.goal !== null && r.goal.scope !== '') lines.push(`声明范围 / Declared scope: ${r.goal.scope}`)
+  if (scopeIssueRows.length === 0) {
+    lines.push('(registry empty or no violations — register boundaries via redteam_add_scope)')
+  } else {
+    lines.push('| record | kind | value | 判定 |')
+    lines.push('|---|---|---|---|')
+    for (const v of scopeIssueRows) {
+      const verdict = v.reason === 'out-of-scope' ? `⛔ 越界 → \`${v.matched}\`` : '⚠ 未在 in-scope 清单'
+      lines.push(`| \`${v.recordId}\` | ${v.recordKind} | \`${v.value}\` | ${verdict} |`)
+    }
+  }
+  lines.push('')
 
   lines.push('## 产物 / Artifacts')
   lines.push('')

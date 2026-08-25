@@ -31,9 +31,10 @@ import type {
   RedteamViewAsset,
   RedteamViewNode,
   SampleRecord,
+  ScopeEntryRecord,
   Severity,
 } from './types.js'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, INTENT_STATUSES, IOC_TYPES, SAMPLE_KINDS } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, INTENT_STATUSES, IOC_TYPES, SAMPLE_KINDS, SCOPE_KINDS } from './types.js'
 import {
   artifactSchema,
   assetSchema,
@@ -47,7 +48,9 @@ import {
   iocSchema,
   objectiveSchema,
   sampleSchema,
+  scopeEntrySchema,
 } from './spec.js'
+import { scopeCheck } from './scope.js'
 import { ATTACK_TECHNIQUE_RE, CVE_ID_RE, CWE_ID_RE, MD5_RE, OWASP_CATEGORY_RE, SHA1_RE, SHA256_RE, scoreVector, validCweIds, validOwaspIds, validTechniqueIds } from './cvss.js'
 import { maskSecret } from './secrets.js'
 
@@ -158,6 +161,12 @@ export interface NewIoc {
   intentId?: string
 }
 
+export interface NewScopeEntry {
+  kind: import('./types.js').ScopeKind
+  value: string
+  note?: string
+}
+
 export interface SubmitBatch {
   intentId: string
   evidence?: NewEvidence[]
@@ -185,6 +194,7 @@ export interface SubmitResult {
 type RecordTable =
   | 'goals' | 'intents' | 'facts' | 'assets' | 'findings' | 'evidence'
   | 'credentials' | 'artifacts' | 'hints' | 'samples' | 'iocs' | 'objectives'
+  | 'scope_entries'
 
 const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   intents: 'intent',
@@ -198,6 +208,7 @@ const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   samples: 'sample',
   iocs: 'ioc',
   objectives: 'obj',
+  scope_entries: 'scope',
 }
 
 interface Sessioned {
@@ -674,6 +685,28 @@ export class EngagementStore {
     return id
   }
 
+  /** Register one structured authorization-boundary entry (in/out scope). */
+  async addScopeEntry(sessionId: string, input: NewScopeEntry): Promise<string> {
+    this.requireActiveGoal(sessionId)
+    if (!SCOPE_KINDS.includes(input.kind)) {
+      throw new StoreError('invalid-record', `invalid scope kind: '${input.kind}'`)
+    }
+    const value = input.value.trim()
+    if (value === '') {
+      throw new StoreError('invalid-record', 'scope value must not be empty')
+    }
+    const id = this.nextId('scope_entries', sessionId)
+    const parsed = scopeEntrySchema.parse({
+      sessionId,
+      kind: input.kind,
+      value,
+      ...(input.note !== undefined && input.note !== '' ? { note: input.note } : {}),
+      createdAt: Date.now(),
+    })
+    await this.put('scope_entries', id, parsed as ScopeEntryRecord)
+    return id
+  }
+
   /** Prove/unprove a checklist entry; evidence ids document the proof. */
   async proveObjective(sessionId: string, objectiveId: string, patch: {
     proven?: boolean
@@ -1021,6 +1054,7 @@ export class EngagementStore {
     objectiveProgress: { total: number; proven: number }
     credentialReuse: { mask: string; targets: string[]; kinds: string[] }[]
     nextSteps: string[]
+    scope: { entries: number; violations: import('./types.js').ScopeIssue[] }
   } {
     const goal = this.currentGoal(sessionId)
     const win = this.windowOf(sessionId)
@@ -1033,12 +1067,18 @@ export class EngagementStore {
     const techniques = this.techniqueCoverage(sessionId)
     const objectiveProgress = this.objectiveProgress(sessionId)
     const credentialReuse = this.credentialReuse(sessionId)
+    const issues = this.scopeIssues(sessionId)
     const unverifiedCredentials = win === null
       ? 0
       : (this.rowsInWindow('credentials', sessionId, win) as [string, CredentialRecord][])
         .filter(([, c]) => c.status === 'unverified').length
     const findingsCount = this.counts(sessionId).findings
     const nextSteps: string[] = []
+    if (issues.some((i) => i.reason === 'out-of-scope')) {
+      nextSteps.push(`scope violation(s) recorded — stop work on those targets and note the boundary (redteam_add_scope out)`)
+    } else if (issues.some((i) => i.reason === 'unscoped')) {
+      nextSteps.push(`${issues.filter((i) => i.reason === 'unscoped').length} target(s) match no in-scope entry — confirm the boundary via redteam_add_scope`)
+    }
     if (coverage.untested.length > 0) {
       nextSteps.push(`覆盖缺口 / coverage gap: ${coverage.untested.length} asset(s) untouched — anchor them via redteam_add_intent assetIds`)
     }
@@ -1074,7 +1114,33 @@ export class EngagementStore {
       objectiveProgress,
       credentialReuse,
       nextSteps,
+      scope: { entries: win === null ? 0 : (this.rowsInWindow('scope_entries', sessionId, win) as [string, ScopeEntryRecord][]).length, violations: issues },
     }
+  }
+
+  /**
+   * Structured scope compliance over the active engagement: assets by value,
+   * findings via their affected asset, and IOCs judged against the registry
+   * with the shared matcher (out-of-scope hits; unscoped when in-entries
+   * exist and nothing matches).
+   */
+  scopeIssues(sessionId: string): import('./types.js').ScopeIssue[] {
+    const win = this.windowOf(sessionId)
+    if (win === null) return []
+    const entries = (this.rowsInWindow('scope_entries', sessionId, win) as [string, ScopeEntryRecord][])
+      .map(([, e]) => ({ kind: e.kind, value: e.value }))
+    if (entries.length === 0) return []
+    const assets = (this.rowsInWindow('assets', sessionId, win) as [string, AssetRecord][])
+      .map(([id, a]) => ({ id, value: a.value }))
+    const assetValue = new Map(assets.map((a) => [a.id, a.value]))
+    const findings = (this.rowsInWindow('findings', sessionId, win) as [string, FindingRecord][])
+      .map(([id, f]) => ({
+        id,
+        assetValue: f.affectedAssetId !== undefined ? assetValue.get(f.affectedAssetId) ?? null : null,
+      }))
+    const iocs = (this.rowsInWindow('iocs', sessionId, win) as [string, IocRecord][])
+      .map(([id, i]) => ({ id, value: i.value }))
+    return scopeCheck(entries, { assets, findings, iocs })
   }
 
   /**
@@ -1238,6 +1304,8 @@ export class EngagementStore {
       title: o.title,
       provenAt: o.provenAt ?? null,
     }))
+    const scopeEntries = (this.rowsForSession('scope_entries', sessionId) as [string, ScopeEntryRecord][])
+      .map(([id, s]) => ({ id, kind: s.kind, value: s.value, note: s.note ?? null }))
     return {
       goal: goal === undefined
         ? null
@@ -1255,6 +1323,8 @@ export class EngagementStore {
       samples,
       iocs,
       objectives,
+      scope: scopeEntries,
+      scopeIssues: this.scopeIssues(sessionId),
       edges: graph.edges,
       counts: graph.counts,
     }

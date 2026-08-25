@@ -2,8 +2,8 @@
 #
 # Composition adapted from the shipped `standard` preset of DeepSeek Harness
 # (MIT, apps/cli/config/agent-presets/standard) with two changes:
-# 1. a commander persona and the `dsh-redteam/redteam` plugin row — the
-#    提案→决策→执行 protocol arrives from the `redteam:protocol` system-prompt
+# 1. a commander persona and the `dsh-redteam/redteam` plugin row 鈥?the
+#    鎻愭鈫掑喅绛栤啋鎵ц protocol arrives from the `redteam:protocol` system-prompt
 #    section contributed by that plugin;
 # 2. execution-only delegation personas: children may batch-submit confirmed
 #    results to their assigned intent via `redteam_submit`, nothing else.
@@ -14,7 +14,7 @@
 # registers tools on the host `tools` registry, a prompt section, and a
 # session-projection unit), so its row sits loose like tool rows.
 
-# ── identity ────────────────────────────────────────────────────────────────
+# 鈹€鈹€ identity 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 - id: persona
   name: '@deepseek-ai/dsh-persona'
@@ -33,7 +33,7 @@
   config:
     maxBytes: 65536
 
-# ── shell ───────────────────────────────────────────────────────────────────
+# 鈹€鈹€ shell 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
@@ -43,7 +43,7 @@
   name: '@deepseek-ai/dsh-tool-pwsh'
   disabled: !!js process.platform !== 'win32'
 
-# ── filesystem ──────────────────────────────────────────────────────────────
+# 鈹€鈹€ filesystem 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
@@ -53,12 +53,12 @@
   config:
     sampleOverCapGlobResults: false
 
-# ── background jobs ────────────────────────────────────────────────────────
+# 鈹€鈹€ background jobs 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 - id: tool-jobs
   name: '@deepseek-ai/dsh-tool-jobs'
 
-# ── skills ──────────────────────────────────────────────────────────────────
+# 鈹€鈹€ skills 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
@@ -66,12 +66,12 @@
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
 
-# ── goals ───────────────────────────────────────────────────────────────────
+# 鈹€鈹€ goals 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 - id: tool-goal
   name: '@deepseek-ai/dsh-tool-goal'
 
-# ── compaction ──────────────────────────────────────────────────────────────
+# 鈹€鈹€ compaction 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 - id: compaction
   name: cordis:group
@@ -93,7 +93,7 @@
         headChars: 4096
         tailChars: 1024
 
-# ── delegation and workflows ────────────────────────────────────────────────
+# 鈹€鈹€ delegation and workflows 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 - id: delegation
   name: cordis:group
@@ -120,28 +120,19 @@
         backgroundMode: continuable
         maxDepth: 1
         persona: |-
-          你是红队执行子 agent，不是指挥官。仅执行委派任务；不要创建 goal、intent、报告，
-          不要更新意图状态、登记或验证凭据、关闭 engagement，也不要继续委派。
-          保留并遵守委派中的目标、授权范围与安全约束；只能在授权范围内操作。
-
-          委派输入必须包含：目标、授权范围、父 intentId（redteam_add_intent 刚返回的真实 ID）、待验证任务、
-          已知资产及可引用的资产 ID。若委派未提供真实父 intentId，不得调用 redteam_submit，
-          应简要告知父 agent 补充。delegation-intent-id、<intentId> 等占位符一律无效。
-
-          不臆造证据、资产、漏洞或复现步骤。每得到一组独立、已确认的结果就立即调用 redteam_submit 分批提交，
-          绝不重复提交同一条：
-          {"intentId":"…","evidence":[{"kind":"command|output|screenshot|file|url|note","content":"…","label":"…"}],
-           "assets":[{"type":"…","value":"…","parentId":"asset-1"}],
-           "credentials":[{"kind":"password|hash|api-key|token|ssh-key|other","secret":"…","username":"…","assetId":"asset-1"}],
+          浣犳槸绾㈤槦鎵ц瀛?agent锛屼笉鏄寚鎸ュ畼銆備粎鎵ц濮旀淳浠诲姟锛涗笉瑕佸垱寤?goal銆乮ntent銆佹姤鍛婏紝
+          涓嶈鏇存柊鎰忓浘鐘舵€併€佺櫥璁版垨楠岃瘉鍑嵁銆佸叧闂?engagement锛屼篃涓嶈缁х画濮旀淳銆?          淇濈暀骞堕伒瀹堝娲句腑鐨勭洰鏍囥€佹巿鏉冭寖鍥翠笌瀹夊叏绾︽潫锛涘彧鑳藉湪鎺堟潈鑼冨洿鍐呮搷浣溿€?
+          濮旀淳杈撳叆蹇呴』鍖呭惈锛氱洰鏍囥€佹巿鏉冭寖鍥淬€佺埗 intentId锛坮edteam_add_intent 鍒氳繑鍥炵殑鐪熷疄 ID锛夈€佸緟楠岃瘉浠诲姟銆?          宸茬煡璧勪骇鍙婂彲寮曠敤鐨勮祫浜?ID銆傝嫢濮旀淳鏈彁渚涚湡瀹炵埗 intentId锛屼笉寰楄皟鐢?redteam_submit锛?          搴旂畝瑕佸憡鐭ョ埗 agent 琛ュ厖銆俤elegation-intent-id銆?intentId> 绛夊崰浣嶇涓€寰嬫棤鏁堛€?
+          涓嶈噯閫犺瘉鎹€佽祫浜с€佹紡娲炴垨澶嶇幇姝ラ銆傛瘡寰楀埌涓€缁勭嫭绔嬨€佸凡纭鐨勭粨鏋滃氨绔嬪嵆璋冪敤 redteam_submit 鍒嗘壒鎻愪氦锛?          缁濅笉閲嶅鎻愪氦鍚屼竴鏉★細
+          {"intentId":"鈥?,"evidence":[{"kind":"command|output|screenshot|file|url|note","content":"鈥?,"label":"鈥?}],
+           "assets":[{"type":"鈥?,"value":"鈥?,"parentId":"asset-1"}],
+           "credentials":[{"kind":"password|hash|api-key|token|ssh-key|other","secret":"鈥?,"username":"鈥?,"assetId":"asset-1"}],
            "artifacts":[{"kind":"file|screenshot|log|report|exploit|dump|other","location":"...","assetId":"asset-1"}],
            "facts":[{...,"evidenceIds":["ev-1"]}],
-           "findings":[{"title":"…","severity":"low|medium|high|critical","description":"…",
-                        "reproducibleSteps":["…"],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
-          同一批次内：evidence 先建，随后 assets/credentials；facts/findings 可引用本批 evidenceIds，
-          findings 可引用本批 assets 的 ID。
-
-          提交成功后，最终回复只写结论、证据摘要与提交计数；不要粘贴命令原文、响应正文或完整 JSON。
-        toolFilter:
+           "findings":[{"title":"鈥?,"severity":"low|medium|high|critical","description":"鈥?,
+                        "reproducibleSteps":["鈥?],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
+          鍚屼竴鎵规鍐咃細evidence 鍏堝缓锛岄殢鍚?assets/credentials锛沠acts/findings 鍙紩鐢ㄦ湰鎵?evidenceIds锛?          findings 鍙紩鐢ㄦ湰鎵?assets 鐨?ID銆?
+          鎻愪氦鎴愬姛鍚庯紝鏈€缁堝洖澶嶅彧鍐欑粨璁恒€佽瘉鎹憳瑕佷笌鎻愪氦璁℃暟锛涗笉瑕佺矘璐村懡浠ゅ師鏂囥€佸搷搴旀鏂囨垨瀹屾暣 JSON銆?        toolFilter:
           deny:
             - redteam_add_goal
             - redteam_add_intent
@@ -155,6 +146,7 @@
             - redteam_add_sample
             - redteam_add_ioc
             - redteam_add_objective
+            - redteam_add_scope
             - redteam_prove_objective
             - redteam_update_intent
             - redteam_retest_finding
@@ -175,28 +167,19 @@
         backgroundMode: continuable
         maxDepth: 1
         persona: |-
-          你是红队执行子 agent，不是指挥官。仅执行委派任务；不要创建 goal、intent、报告，
-          不要更新意图状态、登记或验证凭据、关闭 engagement，也不要继续委派。
-          保留并遵守委派中的目标、授权范围与安全约束；只能在授权范围内操作。
-
-          委派输入必须包含：目标、授权范围、父 intentId（redteam_add_intent 刚返回的真实 ID）、待验证任务、
-          已知资产及可引用的资产 ID。若委派未提供真实父 intentId，不得调用 redteam_submit，
-          应简要告知父 agent 补充。delegation-intent-id、<intentId> 等占位符一律无效。
-
-          不臆造证据、资产、漏洞或复现步骤。每得到一组独立、已确认的结果就立即调用 redteam_submit 分批提交，
-          绝不重复提交同一条：
-          {"intentId":"…","evidence":[{"kind":"command|output|screenshot|file|url|note","content":"…","label":"…"}],
-           "assets":[{"type":"…","value":"…","parentId":"asset-1"}],
-           "credentials":[{"kind":"password|hash|api-key|token|ssh-key|other","secret":"…","username":"…","assetId":"asset-1"}],
+          浣犳槸绾㈤槦鎵ц瀛?agent锛屼笉鏄寚鎸ュ畼銆備粎鎵ц濮旀淳浠诲姟锛涗笉瑕佸垱寤?goal銆乮ntent銆佹姤鍛婏紝
+          涓嶈鏇存柊鎰忓浘鐘舵€併€佺櫥璁版垨楠岃瘉鍑嵁銆佸叧闂?engagement锛屼篃涓嶈缁х画濮旀淳銆?          淇濈暀骞堕伒瀹堝娲句腑鐨勭洰鏍囥€佹巿鏉冭寖鍥翠笌瀹夊叏绾︽潫锛涘彧鑳藉湪鎺堟潈鑼冨洿鍐呮搷浣溿€?
+          濮旀淳杈撳叆蹇呴』鍖呭惈锛氱洰鏍囥€佹巿鏉冭寖鍥淬€佺埗 intentId锛坮edteam_add_intent 鍒氳繑鍥炵殑鐪熷疄 ID锛夈€佸緟楠岃瘉浠诲姟銆?          宸茬煡璧勪骇鍙婂彲寮曠敤鐨勮祫浜?ID銆傝嫢濮旀淳鏈彁渚涚湡瀹炵埗 intentId锛屼笉寰楄皟鐢?redteam_submit锛?          搴旂畝瑕佸憡鐭ョ埗 agent 琛ュ厖銆俤elegation-intent-id銆?intentId> 绛夊崰浣嶇涓€寰嬫棤鏁堛€?
+          涓嶈噯閫犺瘉鎹€佽祫浜с€佹紡娲炴垨澶嶇幇姝ラ銆傛瘡寰楀埌涓€缁勭嫭绔嬨€佸凡纭鐨勭粨鏋滃氨绔嬪嵆璋冪敤 redteam_submit 鍒嗘壒鎻愪氦锛?          缁濅笉閲嶅鎻愪氦鍚屼竴鏉★細
+          {"intentId":"鈥?,"evidence":[{"kind":"command|output|screenshot|file|url|note","content":"鈥?,"label":"鈥?}],
+           "assets":[{"type":"鈥?,"value":"鈥?,"parentId":"asset-1"}],
+           "credentials":[{"kind":"password|hash|api-key|token|ssh-key|other","secret":"鈥?,"username":"鈥?,"assetId":"asset-1"}],
            "artifacts":[{"kind":"file|screenshot|log|report|exploit|dump|other","location":"...","assetId":"asset-1"}],
            "facts":[{...,"evidenceIds":["ev-1"]}],
-           "findings":[{"title":"…","severity":"low|medium|high|critical","description":"…",
-                        "reproducibleSteps":["…"],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
-          同一批次内：evidence 先建，随后 assets/credentials；facts/findings 可引用本批 evidenceIds，
-          findings 可引用本批 assets 的 ID。
-
-          提交成功后，最终回复只写结论、证据摘要与提交计数；不要粘贴命令原文、响应正文或完整 JSON。
-        toolFilter:
+           "findings":[{"title":"鈥?,"severity":"low|medium|high|critical","description":"鈥?,
+                        "reproducibleSteps":["鈥?],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
+          鍚屼竴鎵规鍐咃細evidence 鍏堝缓锛岄殢鍚?assets/credentials锛沠acts/findings 鍙紩鐢ㄦ湰鎵?evidenceIds锛?          findings 鍙紩鐢ㄦ湰鎵?assets 鐨?ID銆?
+          鎻愪氦鎴愬姛鍚庯紝鏈€缁堝洖澶嶅彧鍐欑粨璁恒€佽瘉鎹憳瑕佷笌鎻愪氦璁℃暟锛涗笉瑕佺矘璐村懡浠ゅ師鏂囥€佸搷搴旀鏂囨垨瀹屾暣 JSON銆?        toolFilter:
           deny:
             - redteam_add_goal
             - redteam_add_intent
@@ -210,6 +193,7 @@
             - redteam_add_sample
             - redteam_add_ioc
             - redteam_add_objective
+            - redteam_add_scope
             - redteam_prove_objective
             - redteam_update_intent
             - redteam_retest_finding
@@ -254,7 +238,7 @@
         subagentProvider: spawn
         maxRounds: 64
 
-# ── remaining model-facing rows ─────────────────────────────────────────────
+# 鈹€鈹€ remaining model-facing rows 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 - id: tool-ask-user
   name: '@deepseek-ai/dsh-tool-ask-user'
@@ -270,9 +254,9 @@
     fetch: false
     searchTimeoutMs: 60000
 
-# ── red-team mode ───────────────────────────────────────────────────────────
+# 鈹€鈹€ red-team mode 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-# The single redteam plugin: twenty-two model-facing redteam_* tools on the
+# The single redteam plugin: twenty-three model-facing redteam_* tools on the
 # host tools registry, the redteam:protocol system-prompt section, and the
 # standing session-projection unit for the Web tab. Publishes no service;
 # consumes the host storageDomain facility; needs no realm.

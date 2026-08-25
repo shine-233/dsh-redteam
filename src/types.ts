@@ -64,6 +64,30 @@ export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
 export const HINT_SOURCES = ['user', 'operator', 'client'] as const
 export type HintSource = (typeof HINT_SOURCES)[number]
 
+/** Scope registry entry kind (authorization boundary, structured). */
+export const SCOPE_KINDS = ['in', 'out'] as const
+export type ScopeKind = (typeof SCOPE_KINDS)[number]
+
+/** One structured authorization-boundary entry (`redteam_add_scope`). */
+export interface ScopeEntryRecord {
+  readonly sessionId: string
+  readonly kind: ScopeKind
+  /** Target pattern: host/domain/ip/url — matched by the shared scope rules. */
+  readonly value: string
+  readonly note?: string | undefined
+  readonly createdAt: number
+}
+
+/** A record whose target string hits an out-of-scope entry (or, when only
+ * in-scope entries exist, matches none of them). */
+export interface ScopeIssue {
+  readonly recordId: string
+  readonly recordKind: 'asset' | 'finding' | 'ioc'
+  readonly value: string
+  readonly reason: 'out-of-scope' | 'unscoped'
+  readonly matched: string
+}
+
 export interface GoalRecord {
   readonly sessionId: string
   readonly objective: string
@@ -375,6 +399,17 @@ export interface RedteamViewHint {
   readonly intentId: string | null
 }
 
+/** Scope registry entry as seen by the Web tab. */
+export interface RedteamViewScopeEntry {
+  readonly id: string
+  readonly kind: ScopeKind
+  readonly value: string
+  readonly note: string | null
+}
+
+/** Scope compliance issue as seen by the Web tab. */
+export type RedteamViewScopeIssue = ScopeIssue
+
 /** Sample under analysis as seen by the Web tab. */
 export interface RedteamViewSample {
   readonly id: string
@@ -414,6 +449,10 @@ export interface RedteamProjection {
   readonly samples: readonly RedteamViewSample[]
   readonly iocs: readonly RedteamViewIoc[]
   readonly objectives: readonly RedteamViewObjective[]
+  /** Structured authorization boundary (scope registry window). */
+  readonly scope: readonly RedteamViewScopeEntry[]
+  /** Compliance issues computed over the window at fold time. */
+  readonly scopeIssues: readonly RedteamViewScopeIssue[]
   readonly edges: readonly GraphEdge[]
   readonly counts: EngagementCounts
 }

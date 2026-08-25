@@ -10,7 +10,8 @@
 import type { ProjectionSessionEvent } from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
 import { ATTACK_TECHNIQUE_RE, scoreVector } from './cvss.js'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS } from './types.js'
+import { scopeCheck } from './scope.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS } from './types.js'
 import type {
   EdgeRelation,
   EngagementCounts,
@@ -19,6 +20,8 @@ import type {
   RedteamViewAsset,
   RedteamViewFinding,
   RedteamViewNode,
+  RedteamViewScopeEntry,
+  RedteamViewScopeIssue,
 } from './types.js'
 
 const WINDOW_CAP = 200
@@ -103,6 +106,19 @@ export const redteamProjectionSchema = z.object({
     title: z.string(),
     provenAt: z.union([z.number(), z.null()]),
   })).default([]),
+  scope: z.array(z.object({
+    id: z.string(),
+    kind: z.enum(['in', 'out']),
+    value: z.string(),
+    note: z.union([z.string(), z.null()]).default(null),
+  })).default([]),
+  scopeIssues: z.array(z.object({
+    recordId: z.string(),
+    recordKind: z.enum(['asset', 'finding', 'ioc']),
+    value: z.string(),
+    reason: z.enum(['out-of-scope', 'unscoped']),
+    matched: z.string(),
+  })).default([]),
   edges: z.array(edgeSchema),
   counts: z.object({
     intents: z.number(),
@@ -131,6 +147,8 @@ export interface FoldState {
   objectives: import('./types.js').RedteamViewObjective[]
   samples: import('./types.js').RedteamViewSample[]
   iocs: import('./types.js').RedteamViewIoc[]
+  scope: RedteamViewScopeEntry[]
+  scopeIssues: RedteamViewScopeIssue[]
   edges: GraphEdge[]
   counts: EngagementCounts
   /** callId → full pre-call snapshot, for rollback on failed results. */
@@ -155,6 +173,7 @@ const MUTATING = new Set([
   'redteam_add_ioc',
   'redteam_add_objective',
   'redteam_prove_objective',
+  'redteam_add_scope',
   'redteam_update_intent',
   'redteam_retest_finding',
   'redteam_update_credential',
@@ -174,6 +193,8 @@ function emptyState(): FoldState {
     samples: [],
     iocs: [],
     objectives: [],
+    scope: [],
+    scopeIssues: [],
     edges: [],
     counts: { intents: 0, facts: 0, assets: 0, findings: 0, evidence: 0, credentials: 0, artifacts: 0, hints: 0, samples: 0, iocs: 0, objectives: 0 },
     pending: {},
@@ -405,6 +426,17 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       }
       break
     }
+    case 'redteam_add_scope': {
+      const id = nextId(state, 'scope')
+      state.scope.push({
+        id,
+        kind: SCOPE_KINDS.includes(args?.kind) ? args.kind : 'in',
+        value: String(args?.value ?? ''),
+        note: typeof args?.note === 'string' && args.note !== '' ? args.note : null,
+      })
+      state.scope = evictOldest([...state.scope], WINDOW_CAP)
+      break
+    }
     case 'redteam_close_goal': {
       if (state.goal !== null && ['achieved', 'partial', 'not-achieved'].includes(args?.outcome)) {
         state.goal = { ...state.goal, outcome: args.outcome }
@@ -434,8 +466,26 @@ function validateSeverity(value: unknown): 'info' | 'low' | 'medium' | 'high' | 
     : 'info'
 }
 
-function recount(state: FoldState): FoldState['counts'] {
-  const intentIds = new Set(state.nodes.filter((n) => n.kind === 'intent').map((n) => n.id))
+/** Re-evaluate scope compliance over the whole window (cheap, ≤ few hundred). */
+function recomputeScopeIssues(state: FoldState): void {
+  const entries = state.scope.map((s) => ({ kind: s.kind, value: s.value }))
+  const assetValue = new Map(state.assets.map((a) => [a.id, a.value]))
+  state.scopeIssues = entries.length === 0
+    ? []
+    : scopeCheck(
+        entries,
+        {
+          assets: state.assets.map((a) => ({ id: a.id, value: a.value })),
+          findings: state.findings.map((f) => ({
+            id: f.id,
+            assetValue: f.affectedAssetId !== null ? assetValue.get(f.affectedAssetId) ?? null : null,
+          })),
+          iocs: state.iocs.map((i) => ({ id: i.id, value: i.value })),
+        },
+      )
+}
+
+function recount(state: FoldState): FoldState['counts'] {  const intentIds = new Set(state.nodes.filter((n) => n.kind === 'intent').map((n) => n.id))
   const yields = state.edges.filter((e) => e.relation === 'yields')
   const proves = state.edges.filter((e) => e.relation === 'proves')
   return {
@@ -475,11 +525,14 @@ export function fold(state: FoldState, event: ProjectionSessionEvent): FoldState
       samples: [...state.samples],
       iocs: [...state.iocs],
       objectives: [...state.objectives],
+      scope: [...state.scope],
+      scopeIssues: [...state.scopeIssues],
       edges: [...state.edges],
       counts: { ...state.counts },
       pending: { ...state.pending },
     }
     applyMutation(draft, name, args)
+    recomputeScopeIssues(draft)
     const evidenceDelta = name === 'redteam_submit'
       ? (Array.isArray(args?.evidence) ? args.evidence.length : 0)
       : name === 'redteam_add_evidence' ? 1 : 0
@@ -521,6 +574,8 @@ export const redteamProjectionDefinition = {
       samples: state.samples,
       iocs: state.iocs,
       objectives: state.objectives,
+      scope: state.scope,
+      scopeIssues: state.scopeIssues,
       edges: state.edges,
       counts: state.counts,
     }),
