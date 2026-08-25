@@ -70,6 +70,7 @@ describe('bundle manifest', () => {
     for (const fenced of [
       'redteam_add_credential',
       'redteam_add_artifact',
+      'redteam_add_hint',
       'redteam_update_intent',
       'redteam_retest_finding',
       'redteam_update_credential',

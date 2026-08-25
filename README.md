@@ -45,6 +45,8 @@ dsh plugin --profile web add file:C:\path\to\dsh-redteam-0.3.0.tgz
 | 产物追踪 | Artifact 实体（PentAGI ER 模型） | `redteam_add_artifact` 登记 engagement 的交付物（战利品/截图/日志/exp 脚本/转储），与 evidence 区分：产物是输出，证据支撑论断；Web 产物标签页 + 报告产物表 |
 | 提交事务性 | 无对照 | `redteam_submit` 两阶段提交——批内任何校验失败零残留，子代理重试不会产生重复记录 |
 | 收尾后可读 | 无对照 | `redteam_close_goal` 之后 state/graph/report 仍完整可读（最终报告工作流） |
+| 人工转向黑板 | Hint 原语（Cairn 黑板架构） | `redteam_add_hint` 把用户/客户/操作者的方向性指令原文入档（user/operator/client 来源标注），Web 头部指示条 + 报告「人工转向」段 |
+| 漏洞去重标记 | issue dedup（Dradis 类平台） | `redteam_add_finding duplicateOf` 标记重复漏洞（子代理双报场景），报告标注 dup of |
 
 ## 架构速览
 

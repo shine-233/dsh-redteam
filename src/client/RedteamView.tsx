@@ -79,6 +79,11 @@ const styles = `
 .rt-md h1,.rt-md h2,.rt-md h3 { line-height:1.3; }
 .rt-md code { background:var(--dsw-surface,#1b2026); padding:1px 5px; border-radius:4px; }
 .rt-md pre { background:var(--dsw-surface,#1b2026); padding:10px; border-radius:8px; overflow:auto; }
+.rt-hints { border:1px dashed var(--dsw-border,#2a3138); border-radius:8px; padding:8px 10px; margin-bottom:10px; font-size:12px; }
+.rt-hint-item { margin:2px 0; word-break:break-all; }
+.rt-hint-src { font-weight:700; margin-right:4px; }
+.rt-hint-user { color:#6aa2ff; } .rt-hint-client { color:#e0a94e; } .rt-hint-operator { color:#8b95a1; }
+.rt-hint-more { color:var(--dsw-text-secondary,#8b95a1); margin-top:4px; }
 .rt-progress { display:flex; gap:14px; padding:0 0 8px; font-size:12px; color:var(--dsw-text-secondary,#8b95a1); }
 .rt-progress b { color:#7fb069; margin-left:2px; }
 .rt-outcome { font-size:12px; margin-top:4px; font-weight:600; }
@@ -129,6 +134,18 @@ export function RedteamView(props: RedteamViewProps): React.ReactNode {
           </div>
         )}
       </div>
+      {projection.hints.length > 0 && (
+        <div className="rt-hints">
+          {projection.hints.slice(-3).map((h) => (
+            <div className="rt-hint-item" key={h.id}>
+              <span className={`rt-hint-src rt-hint-${h.source}`}>[{h.source}]</span> {h.text}
+            </div>
+          ))}
+          {projection.hints.length > 3 && (
+            <div className="rt-hint-more">… 共 {projection.hints.length} 条转向记录，完整清单见报告</div>
+          )}
+        </div>
+      )}
       <div className="rt-counts">
         <span>意图<b>{counts.intents}</b></span>
         <span>事实<b>{counts.facts}</b></span>

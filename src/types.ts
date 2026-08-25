@@ -53,6 +53,10 @@ export const ARTIFACT_KINDS = [
 ] as const
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
 
+/** Who a steering hint came from (Cairn-style blackboard input). */
+export const HINT_SOURCES = ['user', 'operator', 'client'] as const
+export type HintSource = (typeof HINT_SOURCES)[number]
+
 export interface GoalRecord {
   readonly sessionId: string
   readonly objective: string
@@ -130,6 +134,8 @@ export interface FindingRecord {
   readonly status?: FindingStatus | undefined
   readonly resolvedAt?: number | undefined
   readonly retestNotes?: string | undefined
+  /** Set when this finding duplicates an earlier one (Dradis-style dedup). */
+  readonly duplicateOf?: string | undefined
   readonly createdAt: number
 }
 
@@ -172,6 +178,19 @@ export interface ArtifactRecord {
   readonly createdAt: number
 }
 
+/**
+ * Human steering injected into the running engagement (Cairn's third
+ * blackboard primitive): scope adjustments, priorities, known credentials,
+ * "skip this host" calls. Read-side input — no lifecycle, never deleted.
+ */
+export interface HintRecord {
+  readonly sessionId: string
+  readonly text: string
+  readonly source: HintSource
+  readonly intentId?: string | undefined
+  readonly createdAt: number
+}
+
 /** Edge relations derived from record references at read time. */
 export type EdgeRelation = 'spawns' | 'yields' | 'derived_from' | 'proves' | 'parent' | 'depends_on'
 
@@ -189,6 +208,7 @@ export interface EngagementCounts {
   readonly evidence: number
   readonly credentials: number
   readonly artifacts: number
+  readonly hints: number
 }
 
 /** Summary returned by `redteam_state`. */
@@ -253,6 +273,14 @@ export interface RedteamViewArtifact {
   readonly assetId: string | null
 }
 
+/** Human steering hint as seen by the Web tab. */
+export interface RedteamViewHint {
+  readonly id: string
+  readonly text: string
+  readonly source: HintSource
+  readonly intentId: string | null
+}
+
 export interface RedteamProjection {
   readonly goal: {
     objective: string
@@ -264,6 +292,7 @@ export interface RedteamProjection {
   readonly findings: readonly RedteamViewFinding[]
   readonly credentials: readonly RedteamViewCredential[]
   readonly artifacts: readonly RedteamViewArtifact[]
+  readonly hints: readonly RedteamViewHint[]
   readonly edges: readonly GraphEdge[]
   readonly counts: EngagementCounts
 }

@@ -151,6 +151,7 @@
             - redteam_add_finding
             - redteam_add_credential
             - redteam_add_artifact
+            - redteam_add_hint
             - redteam_update_intent
             - redteam_retest_finding
             - redteam_update_credential
@@ -201,6 +202,7 @@
             - redteam_add_finding
             - redteam_add_credential
             - redteam_add_artifact
+            - redteam_add_hint
             - redteam_update_intent
             - redteam_retest_finding
             - redteam_update_credential
@@ -262,7 +264,7 @@
 
 # ── red-team mode ───────────────────────────────────────────────────────────
 
-# The single redteam plugin: seventeen model-facing redteam_* tools on the
+# The single redteam plugin: eighteen model-facing redteam_* tools on the
 # host tools registry, the redteam:protocol system-prompt section, and the
 # standing session-projection unit for the Web tab. Publishes no service;
 # consumes the host storageDomain facility; needs no realm.

@@ -8,8 +8,8 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, INTENT_STATUSES, PHASES, SEVERITIES } from './types.js'
-import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, SubmitResult } from './store.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, PHASES, SEVERITIES } from './types.js'
+import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, NewHint, SubmitResult } from './store.js'
 import { maskSecret } from './secrets.js'
 
 export interface ToolDeps {
@@ -87,6 +87,10 @@ const findingItems = {
     cvssVector: {
       type: 'string',
       description: "CVSS v3.1 base vector, e.g. 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'; score derived automatically.",
+    },
+    duplicateOf: {
+      type: 'string',
+      description: 'Finding id this duplicates (subagent double-report dedup); the copy stays on record but is marked.',
     },
   },
 } as const
@@ -264,6 +268,22 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     execute: (args, exec) => withStore(exec, async (store, sid) => ({ artifactId: await store.addArtifact(sid, args) }), args),
   })
 
+  const addHint = defineTool<NewHint, { hintId: string }>({
+    name: 'redteam_add_hint',
+    description:
+      "Record human steering into the engagement blackboard (Cairn's Hint primitive): scope adjustments, priority calls, known credentials, 'skip this host' instructions. Hints are read-side input — quote the user verbatim and attribute the source.",
+    parameters: {
+      text: { type: 'string', required: true, description: 'The steering statement (verbatim when possible).' },
+      source: { type: 'string', required: true, enum: [...HINT_SOURCES], description: 'user = target owner in chat; operator = you/the tester; client = written client instruction.' },
+      intentId: { type: 'string', description: 'Intent this steering applies to.' },
+    },
+    output: {
+      schema: {},
+      render: (_a, v) => [{ type: 'text', text: `hint ${v.hintId} recorded` }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid) => ({ hintId: await store.addHint(sid, args) }), args),
+  })
+
   const updateIntent = defineTool<{
     intentId: string; status?: (typeof INTENT_STATUSES)[number]; title?: string; rationale?: string
   }, { intentId: string; status: string }>({
@@ -435,8 +455,8 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
 
   return [
     addGoal, addIntent, addEvidence, addFact, addAsset, addFinding,
-    addCredential, addArtifact, updateIntent, retestFinding, updateCredential,
-    closeGoal, submit, state, graph, report, engagements,
+    addCredential, addArtifact, addHint, updateIntent, retestFinding,
+    updateCredential, closeGoal, submit, state, graph, report, engagements,
   ]
 }
 
@@ -463,6 +483,7 @@ async function jsonReport(store: import('./store.js').EngagementStore, sid: stri
     evidence: Object.fromEntries([...evById].map(([id, e]) => [id, e])),
     credentials: store.maskedCredentials(sid),
     artifacts: Object.fromEntries(records.artifacts),
+    hints: Object.fromEntries(records.hints),
   }
 }
 
@@ -562,9 +583,9 @@ async function markdownReport(
   const c = store.counts(sid)
   lines.push('## 概览 / Overview')
   lines.push('')
-  lines.push(`| intents | facts | assets | findings | evidence | credentials | artifacts |`)
-  lines.push(`|---|---|---|---|---|---|---|`)
-  lines.push(`| ${c.intents} | ${c.facts} | ${c.assets} | ${c.findings} | ${c.evidence} | ${c.credentials} | ${c.artifacts} |`)
+  lines.push(`| intents | facts | assets | findings | evidence | credentials | artifacts | hints |`)
+  lines.push(`|---|---|---|---|---|---|---|---|`)
+  lines.push(`| ${c.intents} | ${c.facts} | ${c.assets} | ${c.findings} | ${c.evidence} | ${c.credentials} | ${c.artifacts} | ${c.hints} |`)
   lines.push('')
 
   const bySeverity = new Map<string, number>()
@@ -632,7 +653,8 @@ async function markdownReport(
       (SEV_ORDER[a[1].severity] ?? 9) - (SEV_ORDER[b[1].severity] ?? 9))
     for (const [id, f] of sorted) {
       const fixedTag = f.status === 'fixed' ? ' ✅ 已修复 / FIXED' : ''
-      lines.push(`### [${f.severity.toUpperCase()}] ${f.title} (\`${id}\`)${fixedTag}`)
+      const dupTag = f.duplicateOf !== undefined ? ` （重复 / dup of \`${f.duplicateOf}\`）` : ''
+      lines.push(`### [${f.severity.toUpperCase()}] ${f.title} (\`${id}\`)${fixedTag}${dupTag}`)
       lines.push('', f.description)
       if (f.affectedAssetId !== undefined) lines.push('', `- 受影响资产 / Affected asset: \`${f.affectedAssetId}\``)
       if (f.cvssVector !== undefined && f.cvssScore !== undefined) {
@@ -682,6 +704,14 @@ async function markdownReport(
       const desc = (a.description ?? '').replace(/\|/g, '\\|').slice(0, 120)
       lines.push(`| \`${id}\` | ${a.kind} | ${a.location} | ${a.intentId ?? ''} | ${a.assetId ?? ''} | ${desc} |`)
     }
+  }
+  lines.push('')
+
+  lines.push('## 人工转向 / Human steering')
+  lines.push('')
+  if (r.hints.length === 0) lines.push('(none)')
+  else for (const [id, h] of r.hints) {
+    lines.push(`- \`${id}\` [${h.source}] ${h.text}${h.intentId !== undefined ? `（针对 / re: \`${h.intentId}\`）` : ''}`)
   }
   lines.push('')
 

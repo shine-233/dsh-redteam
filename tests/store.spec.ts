@@ -414,4 +414,37 @@ describe('EngagementStore', () => {
     // Projection view carries them.
     expect(store.projection(SID).artifacts.map((a) => a.id)).toEqual(['art-1', 'art-2'])
   })
+
+  it('records human steering hints and marks duplicate findings', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const intent = await store.addIntent(SID, { title: 'perimeter' })
+
+    const h1 = await store.addHint(SID, { text: '客户要求跳过 10.0.0.5', source: 'client' })
+    await store.addHint(SID, { text: '优先打 VPN 入口', source: 'user', intentId: intent })
+    expect(store.counts(SID).hints).toBe(2)
+
+    // Unknown intent anchor rejected.
+    await expect(store.addHint(SID, { text: 'x', source: 'operator', intentId: 'intent-99' }))
+      .rejects.toMatchObject({ code: 'missing-ref' })
+
+    // Duplicate marking validates the referenced finding.
+    const original = await store.addFinding(SID, intent, {
+      title: 'weak tls', severity: 'medium', description: '', reproducibleSteps: ['nmap ssl-enum'],
+    })
+    const dup = await store.addFinding(SID, intent, {
+      title: 'weak tls (vpn endpoint)', severity: 'medium', description: '',
+      reproducibleSteps: ['nmap ssl-enum'], duplicateOf: original,
+    })
+    expect(dup).toBe('finding-2')
+    expect(store.engagementRecords(SID).findings[1]![1].duplicateOf).toBe(original)
+    await expect(store.addFinding(SID, intent, {
+      title: 'x', severity: 'low', description: '', reproducibleSteps: ['s'], duplicateOf: 'finding-99',
+    })).rejects.toMatchObject({ code: 'missing-ref' })
+
+    // Hints surface through the projection.
+    const projection = store.projection(SID)
+    expect(projection.hints.map((h) => h.source)).toEqual(['client', 'user'])
+    expect(h1).toBe('hint-1')
+  })
 })

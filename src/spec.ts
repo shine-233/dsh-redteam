@@ -22,6 +22,7 @@ import type {
   FactRecord,
   FindingRecord,
   GoalRecord,
+  HintRecord,
   IntentRecord,
 } from './types.js'
 import {
@@ -31,6 +32,7 @@ import {
   EVIDENCE_KINDS,
   FINDING_STATUSES,
   GOAL_OUTCOMES,
+  HINT_SOURCES,
   INTENT_STATUSES,
   PHASES,
   SEVERITIES,
@@ -104,6 +106,7 @@ export const findingSchema = z.object({
   status: z.enum(FINDING_STATUSES).optional(),
   resolvedAt: isoTime.optional(),
   retestNotes: z.string().optional(),
+  duplicateOf: z.string().optional(),
   createdAt: isoTime,
 })
 
@@ -138,6 +141,14 @@ export const artifactSchema = z.object({
   createdAt: isoTime,
 })
 
+export const hintSchema = z.object({
+  sessionId: z.string(),
+  text: z.string().min(1),
+  source: z.enum(HINT_SOURCES),
+  intentId: z.string().optional(),
+  createdAt: isoTime,
+})
+
 export const redteamDomainSpec = defineDomain({
   name: 'redteam',
   version: REDTEAM_DOMAIN_VERSION,
@@ -150,5 +161,6 @@ export const redteamDomainSpec = defineDomain({
     evidence: domainTable<string, EvidenceRecord>(evidenceSchema),
     credentials: domainTable<string, CredentialRecord>(credentialSchema),
     artifacts: domainTable<string, ArtifactRecord>(artifactSchema),
+    hints: domainTable<string, HintRecord>(hintSchema),
   },
 })

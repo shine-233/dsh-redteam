@@ -23,6 +23,7 @@ import type {
   FindingRecord,
   GoalRecord,
   GraphEdge,
+  HintRecord,
   IntentRecord,
   RedteamProjection,
   RedteamViewAsset,
@@ -38,6 +39,7 @@ import {
   factSchema,
   findingSchema,
   goalSchema,
+  hintSchema,
   intentSchema,
 } from './spec.js'
 import { ATTACK_TECHNIQUE_RE, OWASP_CATEGORY_RE, scoreVector, validOwaspIds, validTechniqueIds } from './cvss.js'
@@ -92,6 +94,8 @@ export interface NewFinding {
   owaspIds?: string[]
   /** CVSS v3.1 base vector; score derived automatically when it parses. */
   cvssVector?: string
+  /** Mark this finding as a duplicate of an earlier one (dedup). */
+  duplicateOf?: string
 }
 
 export interface NewCredential {
@@ -112,6 +116,12 @@ export interface NewArtifact {
   description?: string
   intentId?: string
   assetId?: string
+}
+
+export interface NewHint {
+  text: string
+  source: import('./types.js').HintSource
+  intentId?: string
 }
 
 export interface SubmitBatch {
@@ -135,7 +145,8 @@ export interface SubmitResult {
 }
 
 type RecordTable =
-  | 'goals' | 'intents' | 'facts' | 'assets' | 'findings' | 'evidence' | 'credentials' | 'artifacts'
+  | 'goals' | 'intents' | 'facts' | 'assets' | 'findings' | 'evidence'
+  | 'credentials' | 'artifacts' | 'hints'
 
 const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   intents: 'intent',
@@ -145,6 +156,7 @@ const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   evidence: 'ev',
   credentials: 'cred',
   artifacts: 'art',
+  hints: 'hint',
 }
 
 interface Sessioned {
@@ -415,6 +427,11 @@ export class EngagementStore {
     if (input.cvssVector !== undefined && score === null) {
       throw new StoreError('invalid-record', `cvssVector is not a parseable CVSS v3.x base vector: '${input.cvssVector}'`)
     }
+    if (input.duplicateOf !== undefined && input.duplicateOf !== '') {
+      if (this.get<FindingRecord>('findings', sessionId, input.duplicateOf) === undefined) {
+        throw new StoreError('missing-ref', `finding '${input.duplicateOf}' does not exist in this session`)
+      }
+    }
     const id = this.nextId('findings', sessionId)
     const parsed = findingSchema.parse({
       sessionId,
@@ -432,6 +449,9 @@ export class EngagementStore {
         ? { techniqueIds: [...input.techniqueIds] }
         : {}),
       ...(score !== null ? { cvssVector: input.cvssVector, cvssScore: score } : {}),
+      ...(input.duplicateOf !== undefined && input.duplicateOf !== ''
+        ? { duplicateOf: input.duplicateOf }
+        : {}),
       createdAt: Date.now(),
     })
     await this.put('findings', id, parsed as FindingRecord)
@@ -481,6 +501,24 @@ export class EngagementStore {
       createdAt: Date.now(),
     })
     await this.put('artifacts', id, parsed as ArtifactRecord)
+    return id
+  }
+
+  /** Record human steering (Cairn's Hint primitive) into the blackboard. */
+  async addHint(sessionId: string, input: NewHint): Promise<string> {
+    this.requireActiveGoal(sessionId)
+    if (input.intentId !== undefined && input.intentId !== '') {
+      this.requireIntent(sessionId, input.intentId)
+    }
+    const id = this.nextId('hints', sessionId)
+    const parsed = hintSchema.parse({
+      sessionId,
+      text: input.text,
+      source: input.source,
+      ...(input.intentId !== undefined && input.intentId !== '' ? { intentId: input.intentId } : {}),
+      createdAt: Date.now(),
+    })
+    await this.put('hints', id, parsed as HintRecord)
     return id
   }
 
@@ -744,6 +782,7 @@ export class EngagementStore {
       evidence: this.rowsInWindow('evidence', sessionId, w).length,
       credentials: this.rowsInWindow('credentials', sessionId, w).length,
       artifacts: this.rowsInWindow('artifacts', sessionId, w).length,
+      hints: this.rowsInWindow('hints', sessionId, w).length,
     }
   }
 
@@ -887,6 +926,12 @@ export class EngagementStore {
       intentId: a.intentId ?? null,
       assetId: a.assetId ?? null,
     }))
+    const hints = records.hints.map(([id, h]) => ({
+      id,
+      text: h.text,
+      source: h.source,
+      intentId: h.intentId ?? null,
+    }))
     return {
       goal: goal === undefined
         ? null
@@ -900,6 +945,7 @@ export class EngagementStore {
       findings,
       credentials,
       artifacts,
+      hints,
       edges: graph.edges,
       counts: graph.counts,
     }
@@ -949,6 +995,7 @@ export class EngagementStore {
       evidence: this.rowsInWindow('evidence', sid, win).length,
       credentials: this.rowsInWindow('credentials', sid, win).length,
       artifacts: this.rowsInWindow('artifacts', sid, win).length,
+      hints: this.rowsInWindow('hints', sid, win).length,
     }
   }
 
@@ -962,10 +1009,11 @@ export class EngagementStore {
     evidence: [string, EvidenceRecord][]
     credentials: [string, CredentialRecord][]
     artifacts: [string, ArtifactRecord][]
+    hints: [string, HintRecord][]
   } {
     const win = this.windowOf(sessionId)
     if (win === null) {
-      return { goal: null, intents: [], facts: [], assets: [], findings: [], evidence: [], credentials: [], artifacts: [] }
+      return { goal: null, intents: [], facts: [], assets: [], findings: [], evidence: [], credentials: [], artifacts: [], hints: [] }
     }
     return {
       goal: (({ id: _id, ...rest }) => rest)(this.currentGoal(sessionId)!),
@@ -976,6 +1024,7 @@ export class EngagementStore {
       evidence: this.rowsInWindow('evidence', sessionId, win) as [string, EvidenceRecord][],
       credentials: this.rowsInWindow('credentials', sessionId, win) as [string, CredentialRecord][],
       artifacts: this.rowsInWindow('artifacts', sessionId, win) as [string, ArtifactRecord][],
+      hints: this.rowsInWindow('hints', sessionId, win) as [string, HintRecord][],
     }
   }
 
@@ -1006,4 +1055,5 @@ const EMPTY_COUNTS: EngagementCounts = {
   evidence: 0,
   credentials: 0,
   artifacts: 0,
+  hints: 0,
 }
