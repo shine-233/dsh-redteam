@@ -110,6 +110,8 @@
     # Execution-only child: submits to the parent intent, never composes.
     # DSH rc-line inherits the parent preset for children; until an explicit
     # child-preset option exists this persona + deny filter is the fence.
+    # Keep the deny list in sync with the full write/report surface of the
+    # dsh-redteam/redteam plugin.
     - id: tool-subagent
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
@@ -118,7 +120,8 @@
         backgroundMode: continuable
         maxDepth: 1
         persona: |-
-          你是红队执行子 agent，不是指挥官。仅执行委派任务；不要创建 goal、intent、报告，或继续委派。
+          你是红队执行子 agent，不是指挥官。仅执行委派任务；不要创建 goal、intent、报告，
+          不要更新意图状态、登记或验证凭据、关闭 engagement，也不要继续委派。
           保留并遵守委派中的目标、授权范围与安全约束；只能在授权范围内操作。
 
           委派输入必须包含：目标、授权范围、父 intentId（redteam_add_intent 刚返回的真实 ID）、待验证任务、
@@ -128,10 +131,13 @@
           不臆造证据、资产、漏洞或复现步骤。每得到一组独立、已确认的结果就立即调用 redteam_submit 分批提交，
           绝不重复提交同一条：
           {"intentId":"…","evidence":[{"kind":"command|output|screenshot|file|url|note","content":"…","label":"…"}],
-           "facts":[{...,"evidenceIds":["ev-1"]}],"assets":[{"type":"…","value":"…","parentId":"asset-1"}],
+           "assets":[{"type":"…","value":"…","parentId":"asset-1"}],
+           "credentials":[{"kind":"password|hash|api-key|token|ssh-key|other","secret":"…","username":"…","assetId":"asset-1"}],
+           "facts":[{...,"evidenceIds":["ev-1"]}],
            "findings":[{"title":"…","severity":"low|medium|high|critical","description":"…",
                         "reproducibleSteps":["…"],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
-          同一批次内：evidence 先建，facts/findings 可引用本批 evidenceIds，findings 可引用本批 assets 的 ID。
+          同一批次内：evidence 先建，随后 assets/credentials；facts/findings 可引用本批 evidenceIds，
+          findings 可引用本批 assets 的 ID。
 
           提交成功后，最终回复只写结论、证据摘要与提交计数；不要粘贴命令原文、响应正文或完整 JSON。
         toolFilter:
@@ -142,6 +148,11 @@
             - redteam_add_fact
             - redteam_add_asset
             - redteam_add_finding
+            - redteam_add_credential
+            - redteam_update_intent
+            - redteam_retest_finding
+            - redteam_update_credential
+            - redteam_close_goal
             - redteam_state
             - redteam_graph
             - redteam_report
@@ -157,7 +168,8 @@
         backgroundMode: continuable
         maxDepth: 1
         persona: |-
-          你是红队执行子 agent，不是指挥官。仅执行委派任务；不要创建 goal、intent、报告，或继续委派。
+          你是红队执行子 agent，不是指挥官。仅执行委派任务；不要创建 goal、intent、报告，
+          不要更新意图状态、登记或验证凭据、关闭 engagement，也不要继续委派。
           保留并遵守委派中的目标、授权范围与安全约束；只能在授权范围内操作。
 
           委派输入必须包含：目标、授权范围、父 intentId（redteam_add_intent 刚返回的真实 ID）、待验证任务、
@@ -167,10 +179,13 @@
           不臆造证据、资产、漏洞或复现步骤。每得到一组独立、已确认的结果就立即调用 redteam_submit 分批提交，
           绝不重复提交同一条：
           {"intentId":"…","evidence":[{"kind":"command|output|screenshot|file|url|note","content":"…","label":"…"}],
-           "facts":[{...,"evidenceIds":["ev-1"]}],"assets":[{"type":"…","value":"…","parentId":"asset-1"}],
+           "assets":[{"type":"…","value":"…","parentId":"asset-1"}],
+           "credentials":[{"kind":"password|hash|api-key|token|ssh-key|other","secret":"…","username":"…","assetId":"asset-1"}],
+           "facts":[{...,"evidenceIds":["ev-1"]}],
            "findings":[{"title":"…","severity":"low|medium|high|critical","description":"…",
                         "reproducibleSteps":["…"],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
-          同一批次内：evidence 先建，facts/findings 可引用本批 evidenceIds，findings 可引用本批 assets 的 ID。
+          同一批次内：evidence 先建，随后 assets/credentials；facts/findings 可引用本批 evidenceIds，
+          findings 可引用本批 assets 的 ID。
 
           提交成功后，最终回复只写结论、证据摘要与提交计数；不要粘贴命令原文、响应正文或完整 JSON。
         toolFilter:
@@ -181,6 +196,11 @@
             - redteam_add_fact
             - redteam_add_asset
             - redteam_add_finding
+            - redteam_add_credential
+            - redteam_update_intent
+            - redteam_retest_finding
+            - redteam_update_credential
+            - redteam_close_goal
             - redteam_state
             - redteam_graph
             - redteam_report
@@ -238,7 +258,7 @@
 
 # ── red-team mode ───────────────────────────────────────────────────────────
 
-# The single redteam plugin: eleven model-facing redteam_* tools on the host
+# The single redteam plugin: sixteen model-facing redteam_* tools on the host
 # tools registry, the redteam:protocol system-prompt section, and the standing
 # session-projection unit for the Web tab. Publishes no service; consumes the
 # host storageDomain facility; needs no realm.

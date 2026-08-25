@@ -328,4 +328,51 @@ describe('EngagementStore', () => {
     await expect(store.retestFinding(SID, finding, { outcome: 'fixed', notes: 'post-close verify' }))
       .resolves.toMatchObject({ status: 'fixed' })
   })
+
+  it('submit is transactional: a bad item leaves zero partial records', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const intent = await store.addIntent(SID, { title: 'anchor' })
+
+    await expect(store.submit(SID, {
+      intentId: intent,
+      evidence: [{ kind: 'output', content: 'valid' }],
+      assets: [{ type: 'host', value: '10.0.0.7' }],
+      facts: [{ detail: 'ok', evidenceIds: ['ev-1'] }],
+      findings: [{
+        title: 'bad vector',
+        severity: 'high',
+        description: '',
+        reproducibleSteps: ['s'],
+        cvssVector: 'NOT-A-VECTOR',
+      }],
+    })).rejects.toMatchObject({ code: 'invalid-record' })
+
+    // Nothing from the batch persisted — retry cannot duplicate half of it.
+    expect(store.counts(SID)).toMatchObject({
+      evidence: 0, assets: 0, facts: 0, findings: 0,
+    })
+  })
+
+  it('reports stay readable after closeGoal (final-report workflow)', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const intent = await store.addIntent(SID, { title: 'web' })
+    await store.addFinding(SID, intent, {
+      title: 'xss', severity: 'medium', description: '', reproducibleSteps: ['step'],
+    })
+    await store.closeGoal(SID, { outcome: 'partial', summary: 'time-boxed' })
+
+    const state = store.state(SID)
+    expect(state.goal).not.toBeNull()
+    expect(state.goal!.outcome).toBe('partial')
+    expect(state.counts.findings).toBe(1)
+
+    const records = store.engagementRecords(SID)
+    expect(records.findings).toHaveLength(1)
+    expect(records.goal!.closingSummary).toBe('time-boxed')
+
+    // Graph still renders the closed engagement's chain.
+    expect(store.graph(SID).nodes).toHaveLength(2)
+  })
 })

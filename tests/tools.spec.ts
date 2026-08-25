@@ -216,4 +216,40 @@ describe('redteam tools', () => {
     expect(projection.credentials[0]).toMatchObject({ id: 'cred-1', username: 'admin' })
     expect(JSON.stringify(projection)).not.toContain('S3cret')
   })
+
+  it('exports SARIF 2.1.0 with levels and security-severity, no defer', async () => {
+    const { registry } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'o', authorization: 'ROE-9' }, exec)
+    await registry.call('redteam_add_intent', { title: 'i' }, exec)
+    await registry.call('redteam_add_finding', {
+      intentId: 'intent-1', title: 'rce', severity: 'critical', description: 'desc',
+      reproducibleSteps: ['s1'], cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H',
+      techniqueIds: ['T1505.003'],
+    }, exec)
+    await registry.call('redteam_add_finding', {
+      intentId: 'intent-1', title: 'info leak', severity: 'info', description: '',
+      reproducibleSteps: ['s2'],
+    }, exec)
+
+    const sarif = await registry.call('redteam_report', { format: 'sarif' }, exec)
+    expect(sarif.ok).toBe(true)
+    expect(exec.deferred).toHaveLength(0) // only markdown defers
+
+    const doc = JSON.parse((sarif.value as { body: string }).body)
+    expect(doc.version).toBe('2.1.0')
+    expect(doc.runs).toHaveLength(1)
+    const run = doc.runs[0]
+    expect(run.tool.driver.name).toBe('dsh-redteam')
+    expect(run.results).toHaveLength(2)
+    // Severity sort: critical first with error level; info last as note.
+    expect(run.results[0].level).toBe('error')
+    expect(run.results[0].properties['security-severity']).toBe('9.8')
+    expect(run.results[1].level).toBe('note')
+    expect(run.results[1].properties['security-severity']).toBe('0.0')
+    expect(run.tool.driver.rules.map((r: { id: string }) => r.id))
+      .toEqual(['finding-1', 'finding-2'])
+    // Authorization audit fact rides along in rule properties.
+    expect(run.tool.driver.rules[0].properties.authorization).toBe('ROE-9')
+  })
 })

@@ -66,6 +66,16 @@ describe('bundle manifest', () => {
     expect(composition).toContain('redteam_submit')
     // Children must not write outside submit.
     expect(composition.match(/- redteam_add_goal/g)?.length).toBeGreaterThanOrEqual(2)
+    // The fence covers the full write surface, not just the add_* tools.
+    for (const fenced of [
+      'redteam_add_credential',
+      'redteam_update_intent',
+      'redteam_retest_finding',
+      'redteam_update_credential',
+      'redteam_close_goal',
+    ]) {
+      expect(composition.match(new RegExp(`- ${fenced}$`, 'gm'))?.length).toBeGreaterThanOrEqual(2)
+    }
   })
 
   it('pins node engines and ships MIT', () => {

@@ -40,7 +40,8 @@ dsh plugin --profile web add file:C:\path\to\dsh-redteam-0.3.0.tgz
 | 资产锚点与覆盖度 | 无（ARTEX 双图架构风格） | intent 用 `assetIds` 锚定目标资产，`redteam_state` / 报告 / 资产视图输出已测 vs 未测覆盖 |
 | fact→intent 派生边 | derived_from 边 | intent 用 `derivedFrom` 引用触发它的事实，血缘链入图 |
 | 多步攻击链依赖 | 无（ARTEX planner todolist 风格） | intent 用 `dependsOn` 声明前置步骤（注入→取凭据→横向→提权），图中虚线呈现 |
-| 目标显式结论 | 无（ARTEX prove_goal 风格） | `redteam_close_goal` 以 achieved/partial/not-achieved 收尾并留摘要，报告头部与历史列表引用 |
+| 目标显式结论 | 无（ARTEX prove_goal 风格） | `redteam_close_goal` 以 achieved/partial/not-achieved 收尾并留摘要，报告头部与历史列表引用；**收尾后报告/状态/图仍可完整读取** |
+| SARIF 导出 | 无 | `redteam_report format=sarif` 输出 SARIF 2.1.0（GitHub/GitLab code scanning 可直接摄取），CVSS 映射 security-severity，ATT&CK/OWASP 作为 tags |
 
 ## 架构速览
 

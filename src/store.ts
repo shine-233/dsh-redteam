@@ -28,7 +28,7 @@ import type {
   RedteamViewNode,
   Severity,
 } from './types.js'
-import { CREDENTIAL_STATUSES, INTENT_STATUSES } from './types.js'
+import { CREDENTIAL_KINDS, CREDENTIAL_STATUSES, EVIDENCE_KINDS, INTENT_STATUSES } from './types.js'
 import {
   assetSchema,
   credentialSchema,
@@ -229,6 +229,24 @@ export class EngagementStore {
     for (const [id, goal] of this.rowsForSession('goals', sessionId)) {
       if (goal.closedAt !== undefined) continue
       if (found === undefined || goal.createdAt >= found.createdAt) found = { ...goal, id }
+    }
+    return found as (GoalRecord & { id: string }) | undefined
+  }
+
+  /**
+   * The engagement reads/report render against: the open one when present,
+   * otherwise the most recently closed — closing an engagement must not blank
+   * out its state, graph, or final report.
+   */
+  currentGoal(sessionId: string): (GoalRecord & { id: string }) | undefined {
+    return this.activeGoal(sessionId) ?? this.latestClosedGoal(sessionId)
+  }
+
+  latestClosedGoal(sessionId: string): (GoalRecord & { id: string }) | undefined {
+    let found: (GoalRecord & { id: string }) | undefined
+    for (const [id, goal] of this.rowsForSession('goals', sessionId)) {
+      if (goal.closedAt === undefined) continue
+      if (found === undefined || goal.closedAt! >= found.closedAt!) found = { ...goal, id }
     }
     return found as (GoalRecord & { id: string }) | undefined
   }
@@ -508,13 +526,101 @@ export class EngagementStore {
 
   /**
    * Batch submit for execution subagents. Items may cross-reference within
-   * one batch: evidence mints first, assets second, and facts/findings may
-   * cite fresh evidence and asset ids.
+   * one batch: evidence mints first, then assets and credentials; facts/
+   * findings may cite fresh evidence and asset ids.
+   *
+   * Two-phase: every item is validated (including prospective intra-batch
+   * references) before the first write lands, so a malformed batch leaves no
+   * partial records behind and a client retry cannot duplicate half a batch.
    */
   async submit(sessionId: string, batch: SubmitBatch): Promise<SubmitResult> {
     this.requireActiveGoal(sessionId)
     this.requireIntent(sessionId, batch.intentId)
 
+    // ── phase 1: validate everything against session ∪ prospective ids ──
+    const baseCount = (prefix: string, table: RecordTable): number => {
+      let n = 0
+      for (const [id] of this.rowsForSession(table, sessionId)) {
+        if (id.startsWith(`${prefix}-`)) n += 1
+      }
+      return n
+    }
+    let evN = baseCount('ev', 'evidence')
+    let assetN = baseCount('asset', 'assets')
+    let credN = baseCount('cred', 'credentials')
+    let factN = baseCount('fact', 'facts')
+    let findingN = baseCount('finding', 'findings')
+
+    const evidenceIds = new Set(this.rowsForSession('evidence', sessionId).map(([id]) => id))
+    const assetIds = new Set(this.rowsForSession('assets', sessionId).map(([id]) => id))
+
+    for (const item of batch.evidence ?? []) {
+      if (!EVIDENCE_KINDS.includes(item.kind)) {
+        throw new StoreError('invalid-record', `invalid evidence kind: '${item.kind}'`)
+      }
+      if (item.content === undefined || item.content === '') {
+        throw new StoreError('invalid-record', 'evidence content must not be empty')
+      }
+      evN += 1
+      evidenceIds.add(`ev-${evN}`)
+    }
+    for (const item of batch.assets ?? []) {
+      if (item.type === undefined || item.type === '') throw new StoreError('invalid-record', 'asset type must not be empty')
+      if (item.value === undefined || item.value === '') throw new StoreError('invalid-record', 'asset value must not be empty')
+      if (item.parentId !== undefined && item.parentId !== '' && !assetIds.has(item.parentId)) {
+        throw new StoreError('missing-ref', `asset '${item.parentId}' does not exist in this session`)
+      }
+      assetN += 1
+      assetIds.add(`asset-${assetN}`)
+    }
+    for (const item of batch.credentials ?? []) {
+      if (!CREDENTIAL_KINDS.includes(item.kind)) {
+        throw new StoreError('invalid-record', `invalid credential kind: '${item.kind}'`)
+      }
+      if (item.secret === undefined || item.secret === '') {
+        throw new StoreError('invalid-record', 'credential secret must not be empty')
+      }
+      if (item.assetId !== undefined && item.assetId !== '' && !assetIds.has(item.assetId)) {
+        throw new StoreError('missing-ref', `asset '${item.assetId}' does not exist in this session`)
+      }
+      credN += 1
+    }
+    for (const item of batch.facts ?? []) {
+      if (item.detail === undefined || item.detail === '') {
+        throw new StoreError('invalid-record', 'fact detail must not be empty')
+      }
+      for (const evId of item.evidenceIds ?? []) {
+        if (!evidenceIds.has(evId)) {
+          throw new StoreError('missing-ref', `evidence '${evId}' does not exist in this session`)
+        }
+      }
+      factN += 1
+    }
+    for (const item of batch.findings ?? []) {
+      if ((item.reproducibleSteps ?? []).length < 1) {
+        throw new StoreError('invalid-record', 'findings need at least one reproducible step')
+      }
+      for (const evId of item.evidenceIds ?? []) {
+        if (!evidenceIds.has(evId)) {
+          throw new StoreError('missing-ref', `evidence '${evId}' does not exist in this session`)
+        }
+      }
+      if (item.affectedAssetId !== undefined && item.affectedAssetId !== '' && !assetIds.has(item.affectedAssetId)) {
+        throw new StoreError('missing-ref', `asset '${item.affectedAssetId}' does not exist in this session`)
+      }
+      if (item.techniqueIds !== undefined && !validTechniqueIds(item.techniqueIds)) {
+        throw new StoreError('invalid-record', `techniqueIds must be MITRE ATT&CK ids: ${item.techniqueIds.join(', ')}`)
+      }
+      if (item.owaspIds !== undefined && !validOwaspIds(item.owaspIds)) {
+        throw new StoreError('invalid-record', `owaspIds must be OWASP Top 10 categories: ${item.owaspIds.join(', ')}`)
+      }
+      if (item.cvssVector !== undefined && scoreVector(item.cvssVector) === null) {
+        throw new StoreError('invalid-record', `cvssVector is not a parseable CVSS v3.x base vector: '${item.cvssVector}'`)
+      }
+      findingN += 1
+    }
+
+    // ── phase 2: execute — phase 1 guarantees no mid-batch failure ──
     const result: SubmitResult = { intentId: batch.intentId, evidence: [], facts: [], assets: [], findings: [], credentials: [] }
     for (const item of batch.evidence ?? []) {
       result.evidence.push(await this.addEvidence(sessionId, item))
@@ -547,11 +653,11 @@ export class EngagementStore {
     })
   }
 
-  /** `[since, until]` covering the active engagement; `null` when none is open. */
+  /** `[since, until]` covering the current (open or latest closed) engagement. */
   private windowOf(sessionId: string): { since: number; until: number } | null {
-    const goal = this.activeGoal(sessionId)
+    const goal = this.currentGoal(sessionId)
     if (goal === undefined) return null
-    return { since: goal.createdAt - 1, until: Number.MAX_SAFE_INTEGER }
+    return { since: goal.createdAt - 1, until: goal.closedAt ?? Number.MAX_SAFE_INTEGER }
   }
 
   private requireIntent(sessionId: string, intentId: string): void {
@@ -596,7 +702,7 @@ export class EngagementStore {
     progress: { active: number; done: number; blocked: number }
     coverage: { tested: string[]; untested: string[] }
   } {
-    const goal = this.activeGoal(sessionId)
+    const goal = this.currentGoal(sessionId)
     const win = this.windowOf(sessionId)
     const intents = win === null
       ? [] as [string, IntentRecord][]
@@ -625,7 +731,7 @@ export class EngagementStore {
     if (win === null) {
       return { nodes: [], assets: [], edges: [], counts: { ...EMPTY_COUNTS } }
     }
-    const goal = this.activeGoal(sessionId)!
+    const goal = this.currentGoal(sessionId)!
     const nodes: RedteamViewNode[] = [{ id: goal.id, kind: 'goal', title: goal.objective, status: null, assetIds: [] }]
     const edges: GraphEdge[] = []
 
@@ -698,7 +804,7 @@ export class EngagementStore {
   /** Projection window delivered to the Web tab. */
   projection(sessionId: string): RedteamProjection {
     const graph = this.graph(sessionId)
-    const goal = this.activeGoal(sessionId)
+    const goal = this.currentGoal(sessionId)
     const win = this.windowOf(sessionId)
     const findings = win === null
       ? []
@@ -799,7 +905,7 @@ export class EngagementStore {
       return { goal: null, intents: [], facts: [], assets: [], findings: [], evidence: [], credentials: [] }
     }
     return {
-      goal: (({ id: _id, ...rest }) => rest)(this.activeGoal(sessionId)!),
+      goal: (({ id: _id, ...rest }) => rest)(this.currentGoal(sessionId)!),
       intents: this.rowsInWindow('intents', sessionId, win) as [string, IntentRecord][],
       facts: this.rowsInWindow('facts', sessionId, win) as [string, FactRecord][],
       assets: this.rowsInWindow('assets', sessionId, win) as [string, AssetRecord][],

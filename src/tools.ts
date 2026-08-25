@@ -372,13 +372,13 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
   })
 
   const report = defineTool<{
-    format?: 'markdown' | 'json'; includeEvidence?: boolean
+    format?: 'markdown' | 'json' | 'sarif'; includeEvidence?: boolean
   }, { format: string; body: string }>({
     name: 'redteam_report',
     description:
-      'Render the engagement report for the active session. format=markdown (default) for humans, json for machines; includeEvidence embeds raw evidence content in markdown.',
+      'Render the engagement report for the current engagement (open or just closed). format=markdown (default) for humans, json for machines, sarif for GitHub/GitLab code-scanning ingestion; includeEvidence embeds raw evidence content in markdown.',
     parameters: {
-      format: { type: 'string', enum: ['markdown', 'json'], description: 'Default markdown.' },
+      format: { type: 'string', enum: ['markdown', 'json', 'sarif'], description: 'Default markdown.' },
       includeEvidence: { type: 'boolean', description: 'Markdown only: append raw evidence appendix.' },
     },
     output: {
@@ -389,19 +389,21 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       const format = a.format ?? 'markdown'
       const body = format === 'json'
         ? JSON.stringify(await jsonReport(store, sid), null, 2)
-        : await markdownReport(store, sid, a.includeEvidence ?? false)
-      if (format !== 'json') exec.deferContext(reportDeferredNotice())
+        : format === 'sarif'
+          ? await sarifReport(store, sid)
+          : await markdownReport(store, sid, a.includeEvidence ?? false)
+      if (format === 'markdown') exec.deferContext(reportDeferredNotice())
       return { format, body }
     }, args),
   })
 
-  const engagements = defineTool<Record<string, never>, Record<string, unknown>>({
+  const engagements = defineTool<Record<string, never>, { length: number }>({
     name: 'redteam_engagements',
     description:
       'List every engagement ever recorded on this deployment (all sessions), newest first, with per-engagement counts.',
     parameters: {},
-    output: { schema: {}, render: () => [{ type: 'text', text: 'engagement history listed' }] },
-    execute: (_args, exec) => withStore(exec, async (store) => await store.listEngagements() as unknown as Record<string, unknown>, {} as Record<string, never>),
+    output: { schema: {}, render: (_a, v) => [{ type: 'text', text: `${v.length} engagements listed (newest first)` }] },
+    execute: (_args, exec) => withStore(exec, async (store) => await store.listEngagements() as unknown as { length: number }, {} as Record<string, never>),
   })
 
   return [
@@ -437,6 +439,69 @@ async function jsonReport(store: import('./store.js').EngagementStore, sid: stri
 }
 
 const SEV_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 }
+
+/** SARIF level + GitHub security-severity fallback per finding severity. */
+const SEV_TO_SARIF: Record<string, { level: 'error' | 'warning' | 'note'; severity: string }> = {
+  critical: { level: 'error', severity: '9.5' },
+  high: { level: 'error', severity: '7.5' },
+  medium: { level: 'warning', severity: '4.5' },
+  low: { level: 'note', severity: '2.5' },
+  info: { level: 'note', severity: '0.0' },
+}
+
+/**
+ * Minimal valid SARIF 2.1.0 run: one rule per finding (id-keyed), CVSS-backed
+ * `security-severity` so GitHub raises the right alert severity, and
+ * ATT&CK/OWASP ids as tags.
+ */
+async function sarifReport(store: import('./store.js').EngagementStore, sid: string): Promise<string> {
+  const r = store.engagementRecords(sid)
+  const sorted = [...r.findings].sort((a, b) =>
+    (SEV_ORDER[a[1].severity] ?? 9) - (SEV_ORDER[b[1].severity] ?? 9))
+  const goal = r.goal
+  const sarif = {
+    $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
+    version: '2.1.0',
+    runs: [{
+      tool: {
+        driver: {
+          name: 'dsh-redteam',
+          informationUri: 'https://github.com/shine-233/dsh-redteam',
+          rules: sorted.map(([id, f]) => ({
+            id,
+            shortDescription: { text: f.title },
+            defaultConfiguration: { level: SEV_TO_SARIF[f.severity]?.level ?? 'note' },
+            properties: {
+              ...(f.cvssScore !== undefined ? { 'security-severity': f.cvssScore.toFixed(1) } : {}),
+              tags: [...(f.techniqueIds ?? []), ...(f.owaspIds ?? [])],
+              ...(goal !== null ? { authorization: goal.authorization } : {}),
+            },
+          })),
+        },
+      },
+      results: sorted.map(([id, f]) => ({
+        ruleId: id,
+        level: SEV_TO_SARIF[f.severity]?.level ?? 'note',
+        message: {
+          text: [
+            `[${f.severity.toUpperCase()}] ${f.title}`,
+            f.description,
+            'Reproduction:',
+            ...f.reproducibleSteps.map((s, i) => `${i + 1}. ${s}`),
+          ].filter((part) => part !== '').join('\n'),
+        },
+        properties: {
+          'security-severity': f.cvssScore?.toFixed(1) ?? SEV_TO_SARIF[f.severity]?.severity ?? '0.0',
+          intentId: f.intentId,
+          ...(f.affectedAssetId !== undefined ? { affectedAssetId: f.affectedAssetId } : {}),
+          ...(f.status === 'fixed' ? { retestStatus: 'fixed' } : {}),
+        },
+        partialFingerprints: { 'redteamFindingId/v1': id },
+      })),
+    }],
+  }
+  return JSON.stringify(sarif, null, 2)
+}
 
 async function markdownReport(
   store: import('./store.js').EngagementStore,
