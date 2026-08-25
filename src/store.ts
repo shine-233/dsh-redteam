@@ -25,12 +25,14 @@ import type {
   GraphEdge,
   HintRecord,
   IntentRecord,
+  IocRecord,
   RedteamProjection,
   RedteamViewAsset,
   RedteamViewNode,
+  SampleRecord,
   Severity,
 } from './types.js'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, INTENT_STATUSES } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, INTENT_STATUSES, IOC_TYPES, SAMPLE_KINDS } from './types.js'
 import {
   artifactSchema,
   assetSchema,
@@ -41,8 +43,10 @@ import {
   goalSchema,
   hintSchema,
   intentSchema,
+  iocSchema,
+  sampleSchema,
 } from './spec.js'
-import { ATTACK_TECHNIQUE_RE, CWE_ID_RE, OWASP_CATEGORY_RE, scoreVector, validCweIds, validOwaspIds, validTechniqueIds } from './cvss.js'
+import { ATTACK_TECHNIQUE_RE, CWE_ID_RE, MD5_RE, OWASP_CATEGORY_RE, SHA1_RE, SHA256_RE, scoreVector, validCweIds, validOwaspIds, validTechniqueIds } from './cvss.js'
 import { maskSecret } from './secrets.js'
 
 /** Machine-tagged store failure surfaced verbatim to the calling tool. */
@@ -127,6 +131,26 @@ export interface NewHint {
   intentId?: string
 }
 
+export interface NewSample {
+  kind: import('./types.js').SampleKind
+  location: string
+  sha256: string
+  md5?: string
+  sha1?: string
+  fileType?: string
+  arch?: string
+  notes?: string
+  intentId?: string
+}
+
+export interface NewIoc {
+  type: import('./types.js').IocType
+  value: string
+  context?: string
+  sampleId?: string
+  intentId?: string
+}
+
 export interface SubmitBatch {
   intentId: string
   evidence?: NewEvidence[]
@@ -135,6 +159,8 @@ export interface SubmitBatch {
   findings?: NewFinding[]
   credentials?: NewCredential[]
   artifacts?: NewArtifact[]
+  samples?: NewSample[]
+  iocs?: NewIoc[]
 }
 
 export interface SubmitResult {
@@ -145,11 +171,13 @@ export interface SubmitResult {
   findings: string[]
   credentials: string[]
   artifacts: string[]
+  samples: string[]
+  iocs: string[]
 }
 
 type RecordTable =
   | 'goals' | 'intents' | 'facts' | 'assets' | 'findings' | 'evidence'
-  | 'credentials' | 'artifacts' | 'hints'
+  | 'credentials' | 'artifacts' | 'hints' | 'samples' | 'iocs'
 
 const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   intents: 'intent',
@@ -160,6 +188,8 @@ const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   credentials: 'cred',
   artifacts: 'art',
   hints: 'hint',
+  samples: 'sample',
+  iocs: 'ioc',
 }
 
 interface Sessioned {
@@ -549,6 +579,71 @@ export class EngagementStore {
     return id
   }
 
+  /** Register a binary/document under analysis with chain-of-custody hashes. */
+  async addSample(sessionId: string, input: NewSample): Promise<string> {
+    this.requireActiveGoal(sessionId)
+    if (!SHA256_RE.test(input.sha256 ?? '')) {
+      throw new StoreError('invalid-record', 'sample sha256 must be a 64-char hex digest')
+    }
+    if (input.md5 !== undefined && !MD5_RE.test(input.md5)) {
+      throw new StoreError('invalid-record', 'sample md5 must be a 32-char hex digest')
+    }
+    if (input.sha1 !== undefined && !SHA1_RE.test(input.sha1)) {
+      throw new StoreError('invalid-record', 'sample sha1 must be a 40-char hex digest')
+    }
+    if (!SAMPLE_KINDS.includes(input.kind)) {
+      throw new StoreError('invalid-record', `invalid sample kind: '${input.kind}'`)
+    }
+    if (input.intentId !== undefined && input.intentId !== '') {
+      this.requireIntent(sessionId, input.intentId)
+    }
+    const id = this.nextId('samples', sessionId)
+    const parsed = sampleSchema.parse({
+      sessionId,
+      kind: input.kind,
+      location: input.location,
+      sha256: input.sha256.toLowerCase(),
+      ...(input.md5 !== undefined ? { md5: input.md5.toLowerCase() } : {}),
+      ...(input.sha1 !== undefined ? { sha1: input.sha1.toLowerCase() } : {}),
+      ...(input.fileType !== undefined ? { fileType: input.fileType } : {}),
+      ...(input.arch !== undefined ? { arch: input.arch } : {}),
+      ...(input.notes !== undefined ? { notes: input.notes } : {}),
+      ...(input.intentId !== undefined && input.intentId !== '' ? { intentId: input.intentId } : {}),
+      createdAt: Date.now(),
+    })
+    await this.put('samples', id, parsed as SampleRecord)
+    return id
+  }
+
+  /** Record an indicator of compromise, optionally tied to a sample. */
+  async addIoc(sessionId: string, input: NewIoc): Promise<string> {
+    this.requireActiveGoal(sessionId)
+    if (!IOC_TYPES.includes(input.type)) {
+      throw new StoreError('invalid-record', `invalid ioc type: '${input.type}'`)
+    }
+    if (input.sampleId !== undefined && input.sampleId !== '') {
+      const sample = this.get<SampleRecord>('samples', sessionId, input.sampleId)
+      if (sample === undefined) {
+        throw new StoreError('missing-ref', `sample '${input.sampleId}' does not exist in this session`)
+      }
+    }
+    if (input.intentId !== undefined && input.intentId !== '') {
+      this.requireIntent(sessionId, input.intentId)
+    }
+    const id = this.nextId('iocs', sessionId)
+    const parsed = iocSchema.parse({
+      sessionId,
+      type: input.type,
+      value: input.value,
+      ...(input.context !== undefined ? { context: input.context } : {}),
+      ...(input.sampleId !== undefined && input.sampleId !== '' ? { sampleId: input.sampleId } : {}),
+      ...(input.intentId !== undefined && input.intentId !== '' ? { intentId: input.intentId } : {}),
+      createdAt: Date.now(),
+    })
+    await this.put('iocs', id, parsed as IocRecord)
+    return id
+  }
+
   /**
    * Task-tree transition on an intent (status/title/rationale). Only the
    * provided fields change; `closedAt`-style append-only history is not
@@ -711,6 +806,25 @@ export class EngagementStore {
       }
       credN += 1
     }
+    for (const item of batch.samples ?? []) {
+      if (!SAMPLE_KINDS.includes(item.kind)) {
+        throw new StoreError('invalid-record', `invalid sample kind: '${item.kind}'`)
+      }
+      if (item.location === undefined || item.location === '') {
+        throw new StoreError('invalid-record', 'sample location must not be empty')
+      }
+      if (SHA256_RE.test(item.sha256 ?? '') === false) {
+        throw new StoreError('invalid-record', 'sample sha256 must be a 64-char hex digest')
+      }
+    }
+    for (const item of batch.iocs ?? []) {
+      if (!IOC_TYPES.includes(item.type)) {
+        throw new StoreError('invalid-record', `invalid ioc type: '${item.type}'`)
+      }
+      if (item.value === undefined || item.value === '') {
+        throw new StoreError('invalid-record', 'ioc value must not be empty')
+      }
+    }
     for (const item of batch.artifacts ?? []) {
       if (!ARTIFACT_KINDS.includes(item.kind)) {
         throw new StoreError('invalid-record', `invalid artifact kind: '${item.kind}'`)
@@ -758,7 +872,7 @@ export class EngagementStore {
     }
 
     // ── phase 2: execute — phase 1 guarantees no mid-batch failure ──
-    const result: SubmitResult = { intentId: batch.intentId, evidence: [], facts: [], assets: [], findings: [], credentials: [], artifacts: [] }
+    const result: SubmitResult = { intentId: batch.intentId, evidence: [], facts: [], assets: [], findings: [], credentials: [], artifacts: [], samples: [], iocs: [] }
     for (const item of batch.evidence ?? []) {
       result.evidence.push(await this.addEvidence(sessionId, item))
     }
@@ -770,6 +884,12 @@ export class EngagementStore {
     }
     for (const item of batch.artifacts ?? []) {
       result.artifacts.push(await this.addArtifact(sessionId, item))
+    }
+    for (const item of batch.samples ?? []) {
+      result.samples.push(await this.addSample(sessionId, item))
+    }
+    for (const item of batch.iocs ?? []) {
+      result.iocs.push(await this.addIoc(sessionId, item))
     }
     for (const item of batch.facts ?? []) {
       result.facts.push(await this.addFact(sessionId, batch.intentId, item))
@@ -834,6 +954,8 @@ export class EngagementStore {
       credentials: this.rowsInWindow('credentials', sessionId, w).length,
       artifacts: this.rowsInWindow('artifacts', sessionId, w).length,
       hints: this.rowsInWindow('hints', sessionId, w).length,
+      samples: this.rowsInWindow('samples', sessionId, w).length,
+      iocs: this.rowsInWindow('iocs', sessionId, w).length,
     }
   }
 
@@ -985,6 +1107,19 @@ export class EngagementStore {
       source: h.source,
       intentId: h.intentId ?? null,
     }))
+    const samples = records.samples.map(([id, sp]) => ({
+      id,
+      kind: sp.kind,
+      location: sp.location,
+      sha256: sp.sha256,
+      fileType: sp.fileType ?? null,
+    }))
+    const iocs = records.iocs.map(([id, i]) => ({
+      id,
+      type: i.type,
+      value: i.value,
+      sampleId: i.sampleId ?? null,
+    }))
     return {
       goal: goal === undefined
         ? null
@@ -999,6 +1134,8 @@ export class EngagementStore {
       credentials,
       artifacts,
       hints,
+      samples,
+      iocs,
       edges: graph.edges,
       counts: graph.counts,
     }
@@ -1049,6 +1186,8 @@ export class EngagementStore {
       credentials: this.rowsInWindow('credentials', sid, win).length,
       artifacts: this.rowsInWindow('artifacts', sid, win).length,
       hints: this.rowsInWindow('hints', sid, win).length,
+      samples: this.rowsInWindow('samples', sid, win).length,
+      iocs: this.rowsInWindow('iocs', sid, win).length,
     }
   }
 
@@ -1063,10 +1202,12 @@ export class EngagementStore {
     credentials: [string, CredentialRecord][]
     artifacts: [string, ArtifactRecord][]
     hints: [string, HintRecord][]
+    samples: [string, SampleRecord][]
+    iocs: [string, IocRecord][]
   } {
     const win = this.windowOf(sessionId)
     if (win === null) {
-      return { goal: null, intents: [], facts: [], assets: [], findings: [], evidence: [], credentials: [], artifacts: [], hints: [] }
+      return { goal: null, intents: [], facts: [], assets: [], findings: [], evidence: [], credentials: [], artifacts: [], hints: [], samples: [], iocs: [] }
     }
     return {
       goal: (({ id: _id, ...rest }) => rest)(this.currentGoal(sessionId)!),
@@ -1078,6 +1219,8 @@ export class EngagementStore {
       credentials: this.rowsInWindow('credentials', sessionId, win) as [string, CredentialRecord][],
       artifacts: this.rowsInWindow('artifacts', sessionId, win) as [string, ArtifactRecord][],
       hints: this.rowsInWindow('hints', sessionId, win) as [string, HintRecord][],
+      samples: this.rowsInWindow('samples', sessionId, win) as [string, SampleRecord][],
+      iocs: this.rowsInWindow('iocs', sessionId, win) as [string, IocRecord][],
     }
   }
 
@@ -1109,4 +1252,6 @@ const EMPTY_COUNTS: EngagementCounts = {
   credentials: 0,
   artifacts: 0,
   hints: 0,
+  samples: 0,
+  iocs: 0,
 }

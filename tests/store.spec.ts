@@ -489,4 +489,40 @@ describe('EngagementStore', () => {
     await store.retestFinding(SID, 'finding-1', { outcome: 'still-vulnerable', detected: 'alerted' })
     expect(store.engagementRecords(SID).findings[0]![1].detected).toBe('alerted')
   })
+
+  it('registers samples with hash custody and iocs tied to them', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const intent = await store.addIntent(SID, { title: 'malware triage' })
+
+    const sample = await store.addSample(SID, {
+      kind: 'binary',
+      location: '/samples/emotet.bin',
+      sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      md5: '5d41402abc4b2a76b9719d911017c592',
+      fileType: 'PE32 executable', arch: 'x86-64',
+      intentId: intent,
+    })
+    expect(sample).toBe('sample-1')
+
+    // Bad hashes rejected (custody integrity).
+    await expect(store.addSample(SID, {
+      kind: 'binary', location: 'x', sha256: 'not-a-hash',
+    })).rejects.toMatchObject({ code: 'invalid-record' })
+
+    const ioc = await store.addIoc(SID, {
+      type: 'domain', value: 'update-emotet.com',
+      context: 'C2 from strings', sampleId: sample,
+    })
+    expect(ioc).toBe('ioc-1')
+    await expect(store.addIoc(SID, {
+      type: 'domain', value: 'x', sampleId: 'sample-nope',
+    })).rejects.toMatchObject({ code: 'missing-ref' })
+
+    // Report surfaces both.
+    const records = store.engagementRecords(SID)
+    expect(records.samples[0]![1].sha256).toHaveLength(64)
+    expect(records.iocs[0]![1].value).toBe('update-emotet.com')
+    expect(store.counts(SID)).toMatchObject({ samples: 1, iocs: 1 })
+  })
 })

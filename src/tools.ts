@@ -8,8 +8,8 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, PHASES, SEVERITIES } from './types.js'
-import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, NewHint, SubmitResult } from './store.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SEVERITIES } from './types.js'
+import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, NewHint, NewIoc, NewSample, SubmitResult } from './store.js'
 import { maskSecret } from './secrets.js'
 
 export interface ToolDeps {
@@ -127,6 +127,38 @@ const artifactItems = {
     description: { type: 'string', description: 'What it is and why it matters.' },
     intentId: { type: 'string', description: 'Intent that produced it.' },
     assetId: { type: 'string', description: 'Asset it belongs to.' },
+  },
+} as const
+
+const sampleItems = {
+  type: 'object', required: true, additionalProperties: false,
+  properties: {
+    kind: {
+      type: 'string', required: true, enum: [...SAMPLE_KINDS],
+      description: 'Sample kind: binary / document / script / archive / memory-dump / pcap / other.',
+    },
+    location: { type: 'string', required: true, description: 'Path or url where the sample lives.' },
+    sha256: { type: 'string', required: true, description: 'SHA-256 hex digest (64 chars, mandatory custody anchor).' },
+    md5: { type: 'string', description: 'MD5 hex digest (32 chars).' },
+    sha1: { type: 'string', description: 'SHA-1 hex digest (40 chars).' },
+    fileType: { type: 'string', description: "Detected format, e.g. 'PE32 executable'." },
+    arch: { type: 'string', description: "Architecture, e.g. 'x86-64'." },
+    notes: { type: 'string' },
+    intentId: { type: 'string', description: 'Intent that acquired/analyses it.' },
+  },
+} as const
+
+const iocItems = {
+  type: 'object', required: true, additionalProperties: false,
+  properties: {
+    type: {
+      type: 'string', required: true, enum: [...IOC_TYPES],
+      description: 'Indicator category: ip / domain / url / hash / mutex / registry / filepath / user-agent / email / other.',
+    },
+    value: { type: 'string', required: true, description: 'The indicator itself (defang when sharing externally).' },
+    context: { type: 'string', description: 'Where/how it was observed.' },
+    sampleId: { type: 'string', description: 'Sample it was extracted from.' },
+    intentId: { type: 'string', description: 'Intent that observed it.' },
   },
 } as const
 
@@ -296,6 +328,30 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     execute: (args, exec) => withStore(exec, async (store, sid) => ({ hintId: await store.addHint(sid, args) }), args),
   })
 
+  const addSample = defineTool<NewSample, { sampleId: string }>({
+    name: 'redteam_add_sample',
+    description:
+      'Register a binary/document under analysis with chain-of-custody hashes: sha256 mandatory (64 hex), md5/sha1 optional. Sample registry is the malware-analysis convention for reproducible reports.',
+    parameters: { ...sampleItems.properties },
+    output: {
+      schema: {},
+      render: (_a, v) => [{ type: 'text', text: `sample ${v.sampleId} registered` }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid) => ({ sampleId: await store.addSample(sid, args) }), args),
+  })
+
+  const addIoc = defineTool<NewIoc, { iocId: string }>({
+    name: 'redteam_add_ioc',
+    description:
+      'Record an indicator of compromise observed during analysis or exploration: ip / domain / url / hash / mutex / registry key / filepath / user-agent. Optionally tie to a sample id and an intent.',
+    parameters: { ...iocItems.properties },
+    output: {
+      schema: {},
+      render: (a, v) => [{ type: 'text', text: `ioc ${v.iocId} recorded (${(a as NewIoc).type})` }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid) => ({ iocId: await store.addIoc(sid, args) }), args),
+  })
+
   const updateIntent = defineTool<{
     intentId: string; status?: (typeof INTENT_STATUSES)[number]; title?: string; rationale?: string
   }, { intentId: string; status: string }>({
@@ -381,6 +437,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
   const submit = defineTool<{
     intentId: string; evidence?: NewEvidence[]; facts?: NewFact[]; assets?: NewAsset[]
     findings?: NewFinding[]; credentials?: NewCredential[]; artifacts?: NewArtifact[]
+    samples?: NewSample[]; iocs?: NewIoc[]
   }, SubmitResult>({
     name: 'redteam_submit',
     description:
@@ -392,13 +449,15 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       assets: { type: 'array', items: assetItems },
       credentials: { type: 'array', items: credentialItems },
       artifacts: { type: 'array', items: artifactItems },
+      samples: { type: 'array', items: sampleItems },
+      iocs: { type: 'array', items: iocItems },
       findings: { type: 'array', items: findingItems },
     },
     output: {
       schema: {},
       render: (_a, v) => [{
         type: 'text',
-        text: `submitted → evidence ${v.evidence.length}, assets ${v.assets.length}, credentials ${v.credentials.length}, artifacts ${v.artifacts.length}, facts ${v.facts.length}, findings ${v.findings.length}`,
+        text: `submitted → evidence ${v.evidence.length}, assets ${v.assets.length}, credentials ${v.credentials.length}, artifacts ${v.artifacts.length}, samples ${v.samples.length}, iocs ${v.iocs.length}, facts ${v.facts.length}, findings ${v.findings.length}`,
       }],
     },
     execute: (args, exec) => withStore(exec, async (store, sid, a) => await store.submit(sid, a), args),
@@ -468,8 +527,8 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
 
   return [
     addGoal, addIntent, addEvidence, addFact, addAsset, addFinding,
-    addCredential, addArtifact, addHint, updateIntent, retestFinding,
-    updateCredential, closeGoal, submit, state, graph, report, engagements,
+    addCredential, addArtifact, addHint, addSample, addIoc, updateIntent,
+    retestFinding, updateCredential, closeGoal, submit, state, graph, report, engagements,
   ]
 }
 
@@ -497,6 +556,8 @@ async function jsonReport(store: import('./store.js').EngagementStore, sid: stri
     credentials: store.maskedCredentials(sid),
     artifacts: Object.fromEntries(records.artifacts),
     hints: Object.fromEntries(records.hints),
+    samples: Object.fromEntries(records.samples),
+    iocs: Object.fromEntries(records.iocs),
   }
 }
 
@@ -597,8 +658,8 @@ async function markdownReport(
   const c = store.counts(sid)
   lines.push('## 概览 / Overview')
   lines.push('')
-  lines.push(`| intents | facts | assets | findings | evidence | credentials | artifacts | hints |`)
-  lines.push(`|---|---|---|---|---|---|---|---|`)
+  lines.push(`| intents | facts | assets | findings | evidence | credentials | artifacts | hints | samples | iocs |`)
+  lines.push(`|---|---|---|---|---|---|---|---|---|---|`)
   lines.push(`| ${c.intents} | ${c.facts} | ${c.assets} | ${c.findings} | ${c.evidence} | ${c.credentials} | ${c.artifacts} | ${c.hints} |`)
   lines.push('')
 
@@ -754,6 +815,32 @@ async function markdownReport(
   }
   lines.push('')
 
+  lines.push('## 样本 / Samples')
+  lines.push('')
+  if (r.samples.length === 0) lines.push('(none)')
+  else {
+    lines.push('| id | kind | location | sha256 | md5 | type | arch |')
+    lines.push('|---|---|---|---|---|---|---|')
+    for (const [id, sp] of r.samples) {
+      const md5Cell = sp.md5 !== undefined ? `${sp.md5.slice(0, 8)}…` : ''
+      lines.push(`| \`${id}\` | ${sp.kind} | ${sp.location} | \`${sp.sha256.slice(0, 16)}…\` | ${md5Cell} | ${sp.fileType ?? ''} | ${sp.arch ?? ''} |`)
+    }
+  }
+  lines.push('')
+
+  lines.push('## IOC 指标 / Indicators of compromise')
+  lines.push('')
+  if (r.iocs.length === 0) lines.push('(none)')
+  else {
+    lines.push('| id | type | value | sample | context |')
+    lines.push('|---|---|---|---|---|')
+    for (const [id, i] of r.iocs) {
+      const ctx = (i.context ?? '').replace(/\|/g, '\\|').slice(0, 100)
+      lines.push(`| \`${id}\` | ${i.type} | \`${i.value}\` | ${i.sampleId ?? ''} | ${ctx} |`)
+    }
+  }
+  lines.push('')
+
   lines.push('## 人工转向 / Human steering')
   lines.push('')
   if (r.hints.length === 0) lines.push('(none)')
@@ -771,6 +858,8 @@ async function markdownReport(
   for (const [id, f] of r.facts) timeline.push({ at: f.createdAt, line: `\`${id}\` 事实 / fact — ${f.detail.slice(0, 120)}` })
   for (const [id, cr] of r.credentials) timeline.push({ at: cr.createdAt, line: `\`${id}\` 凭据 / credential — ${cr.kind} (${maskSecret(cr.secret)})` })
   for (const [id, a] of r.artifacts) timeline.push({ at: a.createdAt, line: `\`${id}\` 产物 / artifact — ${a.kind} ${a.location}` })
+  for (const [id, sp] of r.samples) timeline.push({ at: sp.createdAt, line: `\`${id}\` 样本 / sample — ${sp.kind} ${sp.sha256.slice(0, 16)}…` })
+  for (const [id, i] of r.iocs) timeline.push({ at: i.createdAt, line: `\`${id}\` IOC — [${i.type}] ${i.value}` })
   for (const [id, f] of r.findings) timeline.push({ at: f.createdAt, line: `\`${id}\` 漏洞 / finding — [${f.severity.toUpperCase()}] ${f.title}` })
   timeline.sort((a, b) => a.at - b.at)
   if (timeline.length === 0) lines.push('(none)')

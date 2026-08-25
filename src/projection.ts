@@ -10,7 +10,7 @@
 import type { ProjectionSessionEvent } from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
 import { ATTACK_TECHNIQUE_RE, scoreVector } from './cvss.js'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, HINT_SOURCES, INTENT_STATUSES } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, SAMPLE_KINDS } from './types.js'
 import type {
   EdgeRelation,
   EngagementCounts,
@@ -83,6 +83,19 @@ export const redteamProjectionSchema = z.object({
     source: z.enum(['user', 'operator', 'client']),
     intentId: z.union([z.string(), z.null()]),
   })).default([]),
+  samples: z.array(z.object({
+    id: z.string(),
+    kind: z.enum(['binary', 'document', 'script', 'archive', 'memory-dump', 'pcap', 'other']),
+    location: z.string(),
+    sha256: z.string(),
+    fileType: z.union([z.string(), z.null()]),
+  })).default([]),
+  iocs: z.array(z.object({
+    id: z.string(),
+    type: z.enum(['ip', 'domain', 'url', 'hash', 'mutex', 'registry', 'filepath', 'user-agent', 'email', 'other']),
+    value: z.string(),
+    sampleId: z.union([z.string(), z.null()]),
+  })).default([]),
   edges: z.array(edgeSchema),
   counts: z.object({
     intents: z.number(),
@@ -93,6 +106,8 @@ export const redteamProjectionSchema = z.object({
     credentials: z.number().default(0),
     artifacts: z.number().default(0),
     hints: z.number().default(0),
+    samples: z.number().default(0),
+    iocs: z.number().default(0),
   }),
 })
 
@@ -105,6 +120,8 @@ export interface FoldState {
   credentials: import('./types.js').RedteamViewCredential[]
   artifacts: import('./types.js').RedteamViewArtifact[]
   hints: import('./types.js').RedteamViewHint[]
+  samples: import('./types.js').RedteamViewSample[]
+  iocs: import('./types.js').RedteamViewIoc[]
   edges: GraphEdge[]
   counts: EngagementCounts
   /** callId → full pre-call snapshot, for rollback on failed results. */
@@ -125,6 +142,8 @@ const MUTATING = new Set([
   'redteam_add_credential',
   'redteam_add_artifact',
   'redteam_add_hint',
+  'redteam_add_sample',
+  'redteam_add_ioc',
   'redteam_update_intent',
   'redteam_retest_finding',
   'redteam_update_credential',
@@ -141,8 +160,10 @@ function emptyState(): FoldState {
     credentials: [],
     artifacts: [],
     hints: [],
+    samples: [],
+    iocs: [],
     edges: [],
-    counts: { intents: 0, facts: 0, assets: 0, findings: 0, evidence: 0, credentials: 0, artifacts: 0, hints: 0 },
+    counts: { intents: 0, facts: 0, assets: 0, findings: 0, evidence: 0, credentials: 0, artifacts: 0, hints: 0, samples: 0, iocs: 0 },
     pending: {},
   }
 }
@@ -330,6 +351,29 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       state.hints = evictOldest([...state.hints], WINDOW_CAP)
       break
     }
+    case 'redteam_add_sample': {
+      const id = nextId(state, 'sample')
+      state.samples.push({
+        id,
+        kind: SAMPLE_KINDS.includes(args?.kind) ? args.kind : 'other',
+        location: String(args?.location ?? ''),
+        sha256: String(args?.sha256 ?? ''),
+        fileType: typeof args?.fileType === 'string' && args.fileType !== '' ? args.fileType : null,
+      })
+      state.samples = evictOldest([...state.samples], WINDOW_CAP)
+      break
+    }
+    case 'redteam_add_ioc': {
+      const id = nextId(state, 'ioc')
+      state.iocs.push({
+        id,
+        type: IOC_TYPES.includes(args?.type) ? args.type : 'other',
+        value: String(args?.value ?? ''),
+        sampleId: typeof args?.sampleId === 'string' && args.sampleId !== '' ? args.sampleId : null,
+      })
+      state.iocs = evictOldest([...state.iocs], WINDOW_CAP)
+      break
+    }
     case 'redteam_close_goal': {
       if (state.goal !== null && ['achieved', 'partial', 'not-achieved'].includes(args?.outcome)) {
         state.goal = { ...state.goal, outcome: args.outcome }
@@ -341,6 +385,8 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       for (const item of args?.assets ?? []) applyMutation(state, 'redteam_add_asset', item)
       for (const item of args?.credentials ?? []) applyMutation(state, 'redteam_add_credential', item)
       for (const item of args?.artifacts ?? []) applyMutation(state, 'redteam_add_artifact', item)
+      for (const item of args?.samples ?? []) applyMutation(state, 'redteam_add_sample', item)
+      for (const item of args?.iocs ?? []) applyMutation(state, 'redteam_add_ioc', item)
       for (const item of args?.facts ?? []) applyMutation(state, 'redteam_add_fact', { ...item, intentId: args?.intentId })
       for (const item of args?.findings ?? []) applyMutation(state, 'redteam_add_finding', { ...item, intentId: args?.intentId })
       break
@@ -369,6 +415,8 @@ function recount(state: FoldState): FoldState['counts'] {
     credentials: state.credentials.length,
     artifacts: state.artifacts.length,
     hints: state.hints.length,
+    samples: state.samples.length,
+    iocs: state.iocs.length,
   }
 }
 
@@ -391,6 +439,8 @@ export function fold(state: FoldState, event: ProjectionSessionEvent): FoldState
       credentials: [...state.credentials],
       artifacts: [...state.artifacts],
       hints: [...state.hints],
+      samples: [...state.samples],
+      iocs: [...state.iocs],
       edges: [...state.edges],
       counts: { ...state.counts },
       pending: { ...state.pending },
@@ -434,6 +484,8 @@ export const redteamProjectionDefinition = {
       credentials: state.credentials,
       artifacts: state.artifacts,
       hints: state.hints,
+      samples: state.samples,
+      iocs: state.iocs,
       edges: state.edges,
       counts: state.counts,
     }),

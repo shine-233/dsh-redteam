@@ -113,6 +113,15 @@ export const OWASP_CATEGORY_RE = /^A\d{2}:(2017|2021)$/
 /** MITRE CWE weakness id (`CWE-79`, `CWE-89`). */
 export const CWE_ID_RE = /^CWE-\d{1,4}$/
 
+/** Hex digests for sample chain-of-custody. */
+export const MD5_RE = /^[a-f0-9]{32}$/i
+export const SHA1_RE = /^[a-f0-9]{40}$/i
+export const SHA256_RE = /^[a-f0-9]{64}$/i
+
+/** Loose IOC shapes — enough to catch typos, not to parse the internet. */
+export const IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}$/
+export const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i
+
 export function validTechniqueIds(ids: readonly string[]): boolean {
   return ids.every((id) => ATTACK_TECHNIQUE_RE.test(id))
 }

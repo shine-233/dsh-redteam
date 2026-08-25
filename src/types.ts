@@ -204,6 +204,63 @@ export interface HintRecord {
   readonly createdAt: number
 }
 
+/** Kinds of analysed binaries/documents (malware-analysis sample registry). */
+export const SAMPLE_KINDS = [
+  'binary',
+  'document',
+  'script',
+  'archive',
+  'memory-dump',
+  'pcap',
+  'other',
+] as const
+export type SampleKind = (typeof SAMPLE_KINDS)[number]
+
+/**
+ * Analysed binary/document under chain of custody — sha256 mandatory so a
+ * typo can never corrupt the record (malware-report convention).
+ */
+export interface SampleRecord {
+  readonly sessionId: string
+  readonly kind: SampleKind
+  /** Path / url where the sample lives. */
+  readonly location: string
+  readonly sha256: string
+  readonly md5?: string | undefined
+  readonly sha1?: string | undefined
+  readonly fileType?: string | undefined
+  readonly arch?: string | undefined
+  readonly notes?: string | undefined
+  readonly intentId?: string | undefined
+  readonly createdAt: number
+}
+
+/** IOC categories (MISP/Cuckoo extraction workflow). */
+export const IOC_TYPES = [
+  'ip',
+  'domain',
+  'url',
+  'hash',
+  'mutex',
+  'registry',
+  'filepath',
+  'user-agent',
+  'email',
+  'other',
+] as const
+export type IocType = (typeof IOC_TYPES)[number]
+
+/** Indicator of compromise observed during analysis/exploration. */
+export interface IocRecord {
+  readonly sessionId: string
+  readonly type: IocType
+  readonly value: string
+  readonly context?: string | undefined
+  readonly sampleId?: string | undefined
+  readonly intentId?: string | undefined
+  readonly createdAt: number
+}
+
 /** Edge relations derived from record references at read time. */
 export type EdgeRelation = 'spawns' | 'yields' | 'derived_from' | 'proves' | 'parent' | 'depends_on'
 
@@ -222,6 +279,8 @@ export interface EngagementCounts {
   readonly credentials: number
   readonly artifacts: number
   readonly hints: number
+  readonly samples: number
+  readonly iocs: number
 }
 
 /** Summary returned by `redteam_state`. */
@@ -296,6 +355,23 @@ export interface RedteamViewHint {
   readonly intentId: string | null
 }
 
+/** Sample under analysis as seen by the Web tab. */
+export interface RedteamViewSample {
+  readonly id: string
+  readonly kind: SampleKind
+  readonly location: string
+  readonly sha256: string
+  readonly fileType: string | null
+}
+
+/** IOC as seen by the Web tab. */
+export interface RedteamViewIoc {
+  readonly id: string
+  readonly type: IocType
+  readonly value: string
+  readonly sampleId: string | null
+}
+
 export interface RedteamProjection {
   readonly goal: {
     objective: string
@@ -308,6 +384,8 @@ export interface RedteamProjection {
   readonly credentials: readonly RedteamViewCredential[]
   readonly artifacts: readonly RedteamViewArtifact[]
   readonly hints: readonly RedteamViewHint[]
+  readonly samples: readonly RedteamViewSample[]
+  readonly iocs: readonly RedteamViewIoc[]
   readonly edges: readonly GraphEdge[]
   readonly counts: EngagementCounts
 }

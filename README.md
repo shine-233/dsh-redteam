@@ -50,6 +50,8 @@ dsh plugin --profile web add file:C:\path\to\dsh-redteam-0.3.0.tgz
 | 检测状态追踪 | VECTR 红/蓝对抗度量 | finding/retest 记录蓝队反馈 undetected/logged/alerted/prevented，报告输出防御触达率 |
 | ATT&CK 技术覆盖 | VECTR/Navigator 覆盖矩阵 | intent 标计划技术、finding 证实用技术，state/报告输出 proven vs attempted-only 覆盖摘要 |
 | CWE 弱点映射 | PwnDoc 漏洞库标配 | finding 可挂 `cweIds`（CWE-79 格式），写入校验，SARIF tags 携带 |
+| 样本登记 | 恶意软件分析报告惯例 | `redteam_add_sample` 以 sha256（64 hex 强制）为保管链锚点登记二进制/文档/内存转储，附 md5/sha1/格式/架构 |
+| IOC 追踪 | MISP/Cuckoo 提取工作流 | `redteam_add_ioc` 按 ip/domain/url/hash/mutex/registry/filepath/user-agent 分类记录指标，可挂样本与意图，报告输出 IOC 附录表 |
 
 ## 架构速览
 

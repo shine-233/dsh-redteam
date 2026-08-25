@@ -24,6 +24,8 @@ import type {
   GoalRecord,
   HintRecord,
   IntentRecord,
+  IocRecord,
+  SampleRecord,
 } from './types.js'
 import {
   ARTIFACT_KINDS,
@@ -35,10 +37,12 @@ import {
   GOAL_OUTCOMES,
   HINT_SOURCES,
   INTENT_STATUSES,
+  IOC_TYPES,
   PHASES,
+  SAMPLE_KINDS,
   SEVERITIES,
 } from './types.js'
-import { ATTACK_TECHNIQUE_RE, CWE_ID_RE, OWASP_CATEGORY_RE } from './cvss.js'
+import { ATTACK_TECHNIQUE_RE, CWE_ID_RE, MD5_RE, OWASP_CATEGORY_RE, SHA1_RE, SHA256_RE } from './cvss.js'
 
 export const REDTEAM_DOMAIN_VERSION = 1
 
@@ -153,6 +157,30 @@ export const hintSchema = z.object({
   createdAt: isoTime,
 })
 
+export const sampleSchema = z.object({
+  sessionId: z.string(),
+  kind: z.enum(SAMPLE_KINDS),
+  location: z.string().min(1),
+  sha256: z.string().regex(SHA256_RE),
+  md5: z.string().regex(MD5_RE).optional(),
+  sha1: z.string().regex(SHA1_RE).optional(),
+  fileType: z.string().optional(),
+  arch: z.string().optional(),
+  notes: z.string().optional(),
+  intentId: z.string().optional(),
+  createdAt: isoTime,
+})
+
+export const iocSchema = z.object({
+  sessionId: z.string(),
+  type: z.enum(IOC_TYPES),
+  value: z.string().min(1),
+  context: z.string().optional(),
+  sampleId: z.string().optional(),
+  intentId: z.string().optional(),
+  createdAt: isoTime,
+})
+
 export const redteamDomainSpec = defineDomain({
   name: 'redteam',
   version: REDTEAM_DOMAIN_VERSION,
@@ -166,5 +194,7 @@ export const redteamDomainSpec = defineDomain({
     credentials: domainTable<string, CredentialRecord>(credentialSchema),
     artifacts: domainTable<string, ArtifactRecord>(artifactSchema),
     hints: domainTable<string, HintRecord>(hintSchema),
+    samples: domainTable<string, SampleRecord>(sampleSchema),
+    iocs: domainTable<string, IocRecord>(iocSchema),
   },
 })
