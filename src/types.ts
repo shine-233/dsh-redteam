@@ -370,6 +370,10 @@ export interface RedteamViewFinding {
   readonly status: FindingStatus | null
   /** Asset this finding was proven against, when registered. */
   readonly affectedAssetId: string | null
+  /** Blue-team feedback (VECTR-style); absent means not yet recorded. */
+  readonly detected: DetectionOutcome | null
+  /** Set when this finding duplicates an earlier one. */
+  readonly duplicateOf: string | null
 }
 
 /** Credential as seen by the Web tab — masked, never the raw secret. */

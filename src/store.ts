@@ -1263,6 +1263,8 @@ export class EngagementStore {
           techniqueIds: [...(f.techniqueIds ?? [])],
           status: f.status === 'fixed' ? 'fixed' as const : null,
           affectedAssetId: f.affectedAssetId ?? null,
+          detected: f.detected ?? null,
+          duplicateOf: f.duplicateOf ?? null,
         }))
     const credentials = this.maskedCredentials(sessionId).map((c) => ({
       id: c.id,

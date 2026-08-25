@@ -8,6 +8,13 @@ import type { RedteamProjection } from '../types.js'
 
 const SEV_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 }
 
+const DETECTED_BADGE: Record<string, { icon: string; label: string; cls: string }> = {
+  undetected: { icon: '🫥', label: '未被检测', cls: 'rt-det-undetected' },
+  logged: { icon: '📝', label: '仅日志', cls: 'rt-det-logged' },
+  alerted: { icon: '🔔', label: '触发告警', cls: 'rt-det-alerted' },
+  prevented: { icon: '⛔', label: '被阻断', cls: 'rt-det-prevented' },
+}
+
 export function FindingsView({ projection }: { projection: RedteamProjection }): React.ReactNode {
   if (projection.findings.length === 0) {
     return <p className="rt-empty">还没有已确认的漏洞。漏洞需要至少一条可复现步骤才能写入记录。</p>
@@ -24,9 +31,15 @@ export function FindingsView({ projection }: { projection: RedteamProjection }):
             <span className={`rt-sev ${finding.severity}`}>{finding.severity.toUpperCase()}</span>
             <strong>{finding.title}</strong>
             {finding.status === 'fixed' && <span className="rt-fixed">✅ 已修复</span>}
+            {finding.duplicateOf !== null && <span className="rt-tag">重复 / dup of <code>{finding.duplicateOf}</code></span>}
             {finding.cvssScore !== null && (
               <span className={`rt-cvss rt-cvss-${finding.cvssScore >= 9 ? 'crit' : finding.cvssScore >= 7 ? 'high' : 'mid'}`}>
                 CVSS {finding.cvssScore.toFixed(1)}
+              </span>
+            )}
+            {finding.detected !== null && DETECTED_BADGE[finding.detected] !== undefined && (
+              <span className={`rt-detected ${DETECTED_BADGE[finding.detected]!.cls}`}>
+                {DETECTED_BADGE[finding.detected]!.icon} {DETECTED_BADGE[finding.detected]!.label}
               </span>
             )}
             <div className="rt-meta">

@@ -186,6 +186,13 @@ const styles = `
   transition:border-color .18s, color .18s; }
 .rt-tech:hover { border-color:#6aa2ff88; color:var(--dsw-text,#dbe2ea); }
 .rt-fixed { margin-left:8px; font-size:11px; font-weight:700; color:#7fb069; }
+.rt-tag { margin-left:8px; background:var(--dsw-surface,#1b2026); border:1px solid var(--dsw-border,#2a3138);
+  border-radius:10px; padding:1px 8px; font-size:11px; color:var(--dsw-text-secondary,#8b95a1); }
+.rt-detected { margin-left:8px; font-size:11px; font-weight:600; }
+.rt-det-undetected { color:#7fb069; }
+.rt-det-logged { color:#6aa2ff; }
+.rt-det-alerted { color:#e0c04e; }
+.rt-det-prevented { color:#ff5c5c; }
 .rt-tags { display:flex; gap:4px; flex-wrap:wrap; }
 .rt-kind-chips { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; align-items:center; }
 .rt-chip-active { background:var(--dsw-accent-soft, rgba(80,140,255,.16)) !important; color:var(--dsw-accent,#6aa2ff) !important; }

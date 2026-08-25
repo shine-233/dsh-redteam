@@ -149,6 +149,29 @@ export function StatsView({ projection }: { projection: RedteamProjection }): Re
         </section>
       )}
 
+      {projection.findings.some((f) => f.detected !== null) && (() => {
+        const counts = new Map<string, number>()
+        for (const f of projection.findings) {
+          if (f.detected !== null) counts.set(f.detected, (counts.get(f.detected) ?? 0) + 1)
+        }
+        const total = [...counts.values()].reduce((a, b) => a + b, 0)
+        const noticed = (counts.get('alerted') ?? 0) + (counts.get('prevented') ?? 0)
+        const pct = Math.round(noticed / total * 100)
+        return (
+          <section className="rt-panel rt-anim" style={{ animationDelay: '210ms' }}>
+            <h3>防御触达率 / Blue-team feedback（VECTR）</h3>
+            <Bar label={`被注意 ${noticed}/${total}`} value={noticed} max={total} color="#e0c04e" mounted={mounted} />
+            <div className="rt-kind-chips">
+              <span className="rt-tech">🫥 未检测 · {counts.get('undetected') ?? 0}</span>
+              <span className="rt-tech">📝 仅日志 · {counts.get('logged') ?? 0}</span>
+              <span className="rt-tech">🔔 告警 · {counts.get('alerted') ?? 0}</span>
+              <span className="rt-tech">⛔ 阻断 · {counts.get('prevented') ?? 0}</span>
+              <span className="rt-tech">触达率 · {pct}%</span>
+            </div>
+          </section>
+        )
+      })()}
+
       <section className="rt-panel rt-anim" style={{ animationDelay: '220ms' }}>
         <h3>范围合规 / Scope compliance</h3>
         {projection.scope.length === 0 && projection.scopeIssues.length === 0 ? (

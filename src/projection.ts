@@ -11,7 +11,7 @@ import type { ProjectionSessionEvent } from '@deepseek-ai/dsh-session-projection
 import { z } from 'zod'
 import { ATTACK_TECHNIQUE_RE, scoreVector } from './cvss.js'
 import { scopeCheck } from './scope.js'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS } from './types.js'
 import type {
   EdgeRelation,
   EngagementCounts,
@@ -66,6 +66,8 @@ export const redteamProjectionSchema = z.object({
     techniqueIds: z.array(z.string()).default([]),
     status: z.enum(['confirmed', 'fixed']).nullable().default(null),
     affectedAssetId: z.union([z.string(), z.null()]).default(null),
+    detected: z.enum(['undetected', 'logged', 'alerted', 'prevented']).nullable().default(null),
+    duplicateOf: z.union([z.string(), z.null()]).default(null),
   })),
   credentials: z.array(z.object({
     id: z.string(),
@@ -313,6 +315,8 @@ function applyMutation(state: FoldState, name: string, args: any): void {
         affectedAssetId: typeof args?.affectedAssetId === 'string' && args.affectedAssetId !== ''
           ? args.affectedAssetId
           : null,
+        detected: DETECTION_OUTCOMES.includes(args?.detected) ? args.detected : null,
+        duplicateOf: typeof args?.duplicateOf === 'string' && args.duplicateOf !== '' ? args.duplicateOf : null,
       })
       state.findings = evictOldest([...state.findings], WINDOW_CAP)
       state.edges = evictOldest([...state.edges], WINDOW_CAP * 2)
