@@ -17,10 +17,10 @@ export function FindingsView({ projection }: { projection: RedteamProjection }):
   )
   return (
     <div>
-      {sorted.map((finding) => {
+      {sorted.map((finding, i) => {
         const intent = projection.nodes.find((n) => n.id === finding.intentId)
         return (
-          <div className="rt-finding" key={finding.id}>
+          <div className="rt-finding" key={finding.id} style={{ animationDelay: `${Math.min(i * 50, 400)}ms` }}>
             <span className={`rt-sev ${finding.severity}`}>{finding.severity.toUpperCase()}</span>
             <strong>{finding.title}</strong>
             {finding.status === 'fixed' && <span className="rt-fixed">✅ 已修复</span>}

@@ -525,4 +525,41 @@ describe('EngagementStore', () => {
     expect(records.iocs[0]![1].value).toBe('update-emotet.com')
     expect(store.counts(SID)).toMatchObject({ samples: 1, iocs: 1 })
   })
+
+  it('runs the objectives checklist with proof and CVE references', async () => {
+    const store = await makeStore()
+    await opened(store)
+    const intent = await store.addIntent(SID, { title: 'ad attack' })
+
+    // Checklist lifecycle.
+    const o1 = await store.addObjective(SID, { title: 'reach domain admin' })
+    await store.addObjective(SID, { title: 'read PII table' })
+    expect(store.state(SID).objectiveProgress).toEqual({ total: 2, proven: 0 })
+
+    await store.addEvidence(SID, { kind: 'output', content: 'whoami → CORP\\dc-admin' })
+    const proven = await store.proveObjective(SID, o1, {
+      evidenceIds: ['ev-1'],
+    })
+    expect(proven.provenAt).toBeDefined()
+    expect(store.state(SID).objectiveProgress).toEqual({ total: 2, proven: 1 })
+
+    // Retract and unknown-id rejection.
+    await store.proveObjective(SID, o1, { proven: false })
+    expect(store.state(SID).objectiveProgress).toEqual({ total: 2, proven: 0 })
+    await expect(store.proveObjective(SID, 'obj-99', {}))
+      .rejects.toMatchObject({ code: 'missing-ref' })
+    await expect(store.proveObjective(SID, o1, { evidenceIds: ['ev-nope'] }))
+      .rejects.toMatchObject({ code: 'missing-ref' })
+
+    // CVE ids validate at write time.
+    const finding = await store.addFinding(SID, intent, {
+      title: 'log4shell', severity: 'critical', description: '',
+      reproducibleSteps: ['jndi lookup'], cveIds: ['CVE-2021-44228'],
+    })
+    expect(finding).toBe('finding-1')
+    await expect(store.addFinding(SID, intent, {
+      title: 'x', severity: 'low', description: '', reproducibleSteps: ['s'],
+      cveIds: ['CVE-2021'],
+    })).rejects.toMatchObject({ code: 'invalid-record' })
+  })
 })

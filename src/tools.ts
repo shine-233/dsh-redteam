@@ -9,7 +9,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SEVERITIES } from './types.js'
-import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, NewHint, NewIoc, NewSample, SubmitResult } from './store.js'
+import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, NewHint, NewIoc, NewObjective, NewSample, SubmitResult } from './store.js'
 import { maskSecret } from './secrets.js'
 
 export interface ToolDeps {
@@ -87,6 +87,10 @@ const findingItems = {
     cweIds: {
       type: 'array', items: { type: 'string' },
       description: "CWE weakness ids, e.g. ['CWE-79','CWE-89'].",
+    },
+    cveIds: {
+      type: 'array', items: { type: 'string' },
+      description: "CVE references for known vulns, e.g. ['CVE-2024-12345'].",
     },
     detected: {
       type: 'string', enum: [...DETECTION_OUTCOMES],
@@ -352,6 +356,41 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     execute: (args, exec) => withStore(exec, async (store, sid) => ({ iocId: await store.addIoc(sid, args) }), args),
   })
 
+  const addObjective = defineTool<NewObjective, { objectiveId: string }>({
+    name: 'redteam_add_objective',
+    description:
+      "Declare one success criterion of the engagement (red-team crown jewel / CTF flag): 'reach domain admin', 'read PII table'. Independent checklist — prove each via redteam_prove_objective.",
+    parameters: {
+      title: { type: 'string', required: true, description: 'The criterion, outcome-phrased.' },
+    },
+    output: {
+      schema: {},
+      render: (_a, v) => [{ type: 'text', text: `objective ${v.objectiveId} added to checklist` }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid) => ({ objectiveId: await store.addObjective(sid, args) }), args),
+  })
+
+  const proveObjective = defineTool<{
+    objectiveId: string; proven?: boolean; evidenceIds?: string[]
+  }, { objectiveId: string; provenAt: number | null }>({
+    name: 'redteam_prove_objective',
+    description:
+      'Mark a checklist criterion as achieved (or retract with proven=false). Cite evidenceIds proving it — the report checklist shows proof timestamps.',
+    parameters: {
+      objectiveId: { type: 'string', required: true },
+      proven: { type: 'boolean', description: 'Default true; false retracts.' },
+      evidenceIds: { type: 'array', items: { type: 'string' }, description: 'Evidence backing the proof.' },
+    },
+    output: {
+      schema: {},
+      render: (_a, v) => [{ type: 'text', text: `objective ${v.objectiveId} → ${v.provenAt !== null ? 'proven' : 'retracted'}` }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      const updated = await store.proveObjective(sid, a.objectiveId, a)
+      return { objectiveId: updated.id, provenAt: updated.provenAt ?? null }
+    }, args),
+  })
+
   const updateIntent = defineTool<{
     intentId: string; status?: (typeof INTENT_STATUSES)[number]; title?: string; rationale?: string
   }, { intentId: string; status: string }>({
@@ -527,8 +566,9 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
 
   return [
     addGoal, addIntent, addEvidence, addFact, addAsset, addFinding,
-    addCredential, addArtifact, addHint, addSample, addIoc, updateIntent,
-    retestFinding, updateCredential, closeGoal, submit, state, graph, report, engagements,
+    addCredential, addArtifact, addHint, addSample, addIoc, addObjective,
+    proveObjective, updateIntent, retestFinding, updateCredential, closeGoal,
+    submit, state, graph, report, engagements,
   ]
 }
 
@@ -558,6 +598,7 @@ async function jsonReport(store: import('./store.js').EngagementStore, sid: stri
     hints: Object.fromEntries(records.hints),
     samples: Object.fromEntries(records.samples),
     iocs: Object.fromEntries(records.iocs),
+    objectives: store.state(sid).objectiveProgress,
   }
 }
 
@@ -596,7 +637,7 @@ async function sarifReport(store: import('./store.js').EngagementStore, sid: str
             defaultConfiguration: { level: SEV_TO_SARIF[f.severity]?.level ?? 'note' },
             properties: {
               ...(f.cvssScore !== undefined ? { 'security-severity': f.cvssScore.toFixed(1) } : {}),
-              tags: [...(f.techniqueIds ?? []), ...(f.owaspIds ?? []), ...(f.cweIds ?? [])],
+              tags: [...(f.techniqueIds ?? []), ...(f.owaspIds ?? []), ...(f.cweIds ?? []), ...(f.cveIds ?? [])],
               ...(goal !== null ? { authorization: goal.authorization } : {}),
             },
           })),
@@ -812,6 +853,14 @@ async function markdownReport(
       const desc = (a.description ?? '').replace(/\|/g, '\\|').slice(0, 120)
       lines.push(`| \`${id}\` | ${a.kind} | ${a.location} | ${a.intentId ?? ''} | ${a.assetId ?? ''} | ${desc} |`)
     }
+  }
+  lines.push('')
+
+  lines.push('## 目标核对单 / Objectives checklist')
+  lines.push('')
+  if (r.objectives.length === 0) lines.push('(none)')
+  else for (const [id, o] of r.objectives) {
+    lines.push(`- ${o.provenAt !== undefined ? '✅' : '⬜'} \`${id}\` ${o.title}${o.provenAt !== undefined ? ` — proven ${new Date(o.provenAt).toISOString()}` : ''}`)
   }
   lines.push('')
 

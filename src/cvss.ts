@@ -113,6 +113,9 @@ export const OWASP_CATEGORY_RE = /^A\d{2}:(2017|2021)$/
 /** MITRE CWE weakness id (`CWE-79`, `CWE-89`). */
 export const CWE_ID_RE = /^CWE-\d{1,4}$/
 
+/** CVE reference id (`CVE-2024-12345`). */
+export const CVE_ID_RE = /^CVE-\d{4}-\d{4,7}$/i
+
 /** Hex digests for sample chain-of-custody. */
 export const MD5_RE = /^[a-f0-9]{32}$/i
 export const SHA1_RE = /^[a-f0-9]{40}$/i

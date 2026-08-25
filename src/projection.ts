@@ -10,7 +10,7 @@
 import type { ProjectionSessionEvent } from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
 import { ATTACK_TECHNIQUE_RE, scoreVector } from './cvss.js'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, SAMPLE_KINDS } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS } from './types.js'
 import type {
   EdgeRelation,
   EngagementCounts,
@@ -44,6 +44,8 @@ export const redteamProjectionSchema = z.object({
     title: z.string(),
     status: z.enum(['active', 'done', 'blocked']).nullable().default(null),
     assetIds: z.array(z.string()).default([]),
+    phase: z.enum(['recon', 'enumeration', 'exploitation', 'post-exploitation', 'reporting']).nullable().default(null),
+    techniqueIds: z.array(z.string()).default([]),
   })),
   assets: z.array(z.object({
     id: z.string(),
@@ -96,6 +98,11 @@ export const redteamProjectionSchema = z.object({
     value: z.string(),
     sampleId: z.union([z.string(), z.null()]),
   })).default([]),
+  objectives: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    provenAt: z.union([z.number(), z.null()]),
+  })).default([]),
   edges: z.array(edgeSchema),
   counts: z.object({
     intents: z.number(),
@@ -108,6 +115,7 @@ export const redteamProjectionSchema = z.object({
     hints: z.number().default(0),
     samples: z.number().default(0),
     iocs: z.number().default(0),
+    objectives: z.number().default(0),
   }),
 })
 
@@ -120,6 +128,7 @@ export interface FoldState {
   credentials: import('./types.js').RedteamViewCredential[]
   artifacts: import('./types.js').RedteamViewArtifact[]
   hints: import('./types.js').RedteamViewHint[]
+  objectives: import('./types.js').RedteamViewObjective[]
   samples: import('./types.js').RedteamViewSample[]
   iocs: import('./types.js').RedteamViewIoc[]
   edges: GraphEdge[]
@@ -144,6 +153,8 @@ const MUTATING = new Set([
   'redteam_add_hint',
   'redteam_add_sample',
   'redteam_add_ioc',
+  'redteam_add_objective',
+  'redteam_prove_objective',
   'redteam_update_intent',
   'redteam_retest_finding',
   'redteam_update_credential',
@@ -162,8 +173,9 @@ function emptyState(): FoldState {
     hints: [],
     samples: [],
     iocs: [],
+    objectives: [],
     edges: [],
-    counts: { intents: 0, facts: 0, assets: 0, findings: 0, evidence: 0, credentials: 0, artifacts: 0, hints: 0, samples: 0, iocs: 0 },
+    counts: { intents: 0, facts: 0, assets: 0, findings: 0, evidence: 0, credentials: 0, artifacts: 0, hints: 0, samples: 0, iocs: 0, objectives: 0 },
     pending: {},
   }
 }
@@ -219,7 +231,11 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       const assetIds = Array.isArray(args?.assetIds)
         ? args.assetIds.filter((a: unknown) => typeof a === 'string')
         : []
-      state.nodes.push({ id, kind: 'intent', title: String(args?.title ?? ''), status, assetIds })
+      const phase = PHASES.includes(args?.phase) ? (args.phase as (typeof PHASES)[number]) : null
+      const techniqueIds = Array.isArray(args?.techniqueIds)
+        ? args.techniqueIds.filter((t: unknown) => typeof t === 'string' && ATTACK_TECHNIQUE_RE.test(t))
+        : []
+      state.nodes.push({ id, kind: 'intent', title: String(args?.title ?? ''), status, assetIds, phase, techniqueIds })
       if (goalNode !== undefined) pushEdge(state.edges, goalNode.id, id, 'spawns')
       for (const factId of Array.isArray(args?.derivedFrom) ? args.derivedFrom : []) {
         if (typeof factId === 'string') pushEdge(state.edges, factId, id, 'derived_from')
@@ -374,6 +390,21 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       state.iocs = evictOldest([...state.iocs], WINDOW_CAP)
       break
     }
+    case 'redteam_add_objective': {
+      const id = nextId(state, 'obj')
+      state.objectives.push({ id, title: String(args?.title ?? ''), provenAt: null })
+      state.objectives = evictOldest([...state.objectives], WINDOW_CAP)
+      break
+    }
+    case 'redteam_prove_objective': {
+      const obj = state.objectives.find((o) => o.id === args?.objectiveId)
+      if (obj !== undefined) {
+        const proven = args?.proven !== false
+        state.objectives = state.objectives.map((o) =>
+          o.id === obj.id ? { ...o, provenAt: proven ? (o.provenAt ?? Date.now()) : null } : o)
+      }
+      break
+    }
     case 'redteam_close_goal': {
       if (state.goal !== null && ['achieved', 'partial', 'not-achieved'].includes(args?.outcome)) {
         state.goal = { ...state.goal, outcome: args.outcome }
@@ -387,6 +418,7 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       for (const item of args?.artifacts ?? []) applyMutation(state, 'redteam_add_artifact', item)
       for (const item of args?.samples ?? []) applyMutation(state, 'redteam_add_sample', item)
       for (const item of args?.iocs ?? []) applyMutation(state, 'redteam_add_ioc', item)
+      // Objectives are commander-level; never minted from submit batches.
       for (const item of args?.facts ?? []) applyMutation(state, 'redteam_add_fact', { ...item, intentId: args?.intentId })
       for (const item of args?.findings ?? []) applyMutation(state, 'redteam_add_finding', { ...item, intentId: args?.intentId })
       break
@@ -417,6 +449,7 @@ function recount(state: FoldState): FoldState['counts'] {
     hints: state.hints.length,
     samples: state.samples.length,
     iocs: state.iocs.length,
+    objectives: state.objectives.filter((o) => o.provenAt !== null).length,
   }
 }
 
@@ -441,6 +474,7 @@ export function fold(state: FoldState, event: ProjectionSessionEvent): FoldState
       hints: [...state.hints],
       samples: [...state.samples],
       iocs: [...state.iocs],
+      objectives: [...state.objectives],
       edges: [...state.edges],
       counts: { ...state.counts },
       pending: { ...state.pending },
@@ -486,6 +520,7 @@ export const redteamProjectionDefinition = {
       hints: state.hints,
       samples: state.samples,
       iocs: state.iocs,
+      objectives: state.objectives,
       edges: state.edges,
       counts: state.counts,
     }),

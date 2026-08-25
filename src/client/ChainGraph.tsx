@@ -1,138 +1,94 @@
 /**
- * Static layered chain graph in plain SVG: goal on top, intents below, and
- * yields/proves edges fanning out. No graph library — layout is a two-pass
- * column assignment over the derived edges.
+ * Interactive chain graph: canvas force layout (see ChainCanvas) plus a
+ * detail drawer for the selected node and a relation legend. Facts/findings
+ * appear as physics-driven leaf nodes; intents stay draggable chips.
  */
 
+import { useEffect, useState } from 'react'
 import type { RedteamProjection } from '../types.js'
+import { ChainCanvas } from './ChainCanvas.js'
 
-const NODE_W = 170
-const NODE_H = 38
-const GAP_X = 56
-const GAP_Y = 18
-
-interface Placed {
-  id: string
-  kind: 'goal' | 'intent'
-  title: string
-  status?: 'active' | 'done' | 'blocked' | null
-  x: number
-  y: number
-}
+const RELATION_LEGEND: { id: string; label: string; color: string }[] = [
+  { id: 'spawns', label: '派生意图', color: '#6aa2ff' },
+  { id: 'yields', label: '产出事实', color: '#5b87c7' },
+  { id: 'proves', label: '证实漏洞', color: '#e05c5c' },
+  { id: 'depends_on', label: '链依赖', color: '#e0975b' },
+  { id: 'derived_from', label: '血缘', color: '#8a7fc7' },
+]
 
 export function ChainGraph({ projection }: { projection: RedteamProjection }): React.ReactNode {
-  const goal = projection.nodes.find((n) => n.kind === 'goal')
-  const intents = projection.nodes.filter((n) => n.kind === 'intent')
+  const [selected, setSelected] = useState<string | null>(null)
+  useEffect(() => {
+    if (selected !== null && !chainNodeExists(projection, selected)) setSelected(null)
+  }, [projection, selected])
 
+  const goal = projection.nodes.find((n) => n.kind === 'goal')
   if (goal === undefined) return <p className="rt-empty">(no engagement)</p>
 
-  // Column per intent; the goal column is centered above them.
-  // Lineage/chain edges are drawn as overlays, not fan-out columns.
-  const columns = intents.map((intent) => ({
-    intent,
-    children: projection.edges.filter(
-      (e) => e.relation === 'yields' || e.relation === 'proves',
-    ).filter((e) => e.from === intent.id),
-  }))
-
-  const overlayEdges = projection.edges.filter(
-    (e) => (e.relation === 'derived_from' || e.relation === 'depends_on'),
-  )
-
-  const width = Math.max(1, intents.length) * (NODE_W + GAP_X)
-  const maxStack = Math.max(1, ...columns.map((c) => c.children.length))
-  const height = NODE_H + 70 + maxStack * (NODE_H + GAP_Y)
-
-  const placed: Placed[] = []
-  const goalX = (width - NODE_W) / 2
-  placed.push({ id: goal.id, kind: 'goal', title: goal.title, x: goalX, y: 8 })
-
-  const edgeLines: { d: string; relation: string; midX: number; midY: number; label: string }[] = []
-
-  columns.forEach((col, i) => {
-    const x = i * (NODE_W + GAP_X) + GAP_X / 2
-    const yTop = NODE_H + 54
-    placed.push({ id: col.intent.id, kind: 'intent', title: col.intent.title, x, y: yTop })
-    edgeLines.push({
-      d: curve(goalX + NODE_W / 2, 8 + NODE_H, x + NODE_W / 2, yTop),
-      relation: 'spawns',
-      midX: (goalX + NODE_W / 2 + x + NODE_W / 2) / 2,
-      midY: (8 + NODE_H + yTop) / 2,
-      label: '意图',
-    })
-    col.children.forEach((edge, j) => {
-      const cy = yTop + NODE_H + GAP_Y + j * (NODE_H + GAP_Y)
-      const label = edge.relation === 'proves' ? `漏洞 ${edge.to}` : `事实 ${edge.to}`
-      placed.push({
-        id: edge.to,
-        kind: 'intent',
-        title: label,
-        x,
-        y: cy,
-      })
-      edgeLines.push({
-        d: curve(x + NODE_W / 2, yTop + NODE_H, x + NODE_W / 2, cy),
-        relation: edge.relation,
-        midX: x + NODE_W / 2,
-        midY: (yTop + NODE_H + cy) / 2,
-        label: edge.relation === 'proves' ? '证实' : '产出',
-      })
-    })
-  })
+  const node = projection.nodes.find((n) => n.id === selected)
+  const finding = projection.findings.find((f) => f.id === selected)
 
   return (
     <div>
-      <svg className="rt-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="探索链路图">
-        {edgeLines.map((e, i) => (
-          <g key={i}>
-            <path className={`rt-edge ${e.relation}`} d={e.d} />
-            <text className="rt-pill" x={e.midX + 6} y={e.midY}>{e.label}</text>
-          </g>
+      <ChainCanvas projection={projection} selectedId={selected} onSelect={setSelected} />
+      <div className="rt-legend">
+        {RELATION_LEGEND.map((r) => (
+          <span key={r.id} className="rt-legend-item">
+            <i style={{ background: r.color }} /> {r.label}
+          </span>
         ))}
-        {overlayEdges.map((e, i) => {
-          const from = placed.find((p) => p.id === e.from)
-          const to = placed.find((p) => p.id === e.to)
-          if (from === undefined || to === undefined) return null
-          return (
-            <path
-              key={`ov-${i}`}
-              className={`rt-edge ${e.relation}`}
-              d={curve(from.x + NODE_W / 2, from.y + NODE_H, to.x + NODE_W / 2, to.y)}
-            />
-          )
-        })}
-        {placed.map((n) => (
-          <g key={n.id} className={`rt-node ${n.kind}`}>
-            <rect x={n.x} y={n.y} width={NODE_W} height={NODE_H} rx={8}
-              data-status={n.kind === 'intent' ? (n.status ?? 'active') : undefined} />
-            <text x={n.x + 10} y={n.y + 17}>
-              <tspan fontWeight="600">{truncate(n.title, n.status === 'done' ? 15 : 18)}</tspan>
-            </text>
-            {n.kind === 'intent' && n.status !== null && n.status !== 'active' && (
-              <text className="rt-status" x={n.x + NODE_W - 8} y={n.y + 17} textAnchor="end">
-                {n.status === 'done' ? '✓' : '⏸'}
-              </text>
+      </div>
+      {selected !== null && (
+        <div className={`rt-drawer ${selected !== null ? 'rt-drawer-open' : ''}`}>
+          <div className="rt-drawer-head">
+            <strong>{node !== undefined ? truncate(node.title, 40) : finding !== undefined ? finding.title : selected}</strong>
+            <button className="rt-tab" onClick={() => setSelected(null)}>×</button>
+          </div>
+          <div className="rt-drawer-body">
+            <code>{selected}</code>
+            {node !== undefined && (
+              <>
+                {node.status !== null && <div className="rt-meta">状态 / Status: {node.status}</div>}
+                {node.phase != null && <div className="rt-meta">阶段 / Phase: {node.phase}</div>}
+                {node.assetIds.length > 0 && (
+                  <div className="rt-meta">锚定资产: {node.assetIds.map((a) => <code key={a}>{a} </code>)}</div>
+                )}
+                {(node.techniqueIds ?? []).length > 0 && (
+                  <div className="rt-techs">
+                    {(node.techniqueIds ?? []).map((t) => <span className="rt-tech" key={t}>{t}</span>)}
+                  </div>
+                )}
+              </>
             )}
-            <text x={n.x + 10} y={n.y + 30} fill="#8b95a1">
-              {n.id}
-            </text>
-            <title>{`${n.id}\n${n.title}${n.status && n.status !== 'active' ? `\n[${n.status}]` : ''}`}</title>
-          </g>
-        ))}
-      </svg>
-      {projection.assets.length > 0 && (
-        <p className="rt-hint">资产以列表与父子关系呈现在「资产」子标签；链路图聚焦目标→意图→产出。</p>
+            {finding !== undefined && (
+              <>
+                <div className="rt-meta">
+                  <span className={`rt-sev ${finding.severity}`}>{finding.severity.toUpperCase()}</span>
+                  {finding.cvssScore !== null && <> · CVSS {finding.cvssScore.toFixed(1)}</>}
+                  {finding.status === 'fixed' && <> · ✅ 已修复</>}
+                </div>
+                {finding.affectedAssetId !== null && <div className="rt-meta">影响资产: <code>{finding.affectedAssetId}</code></div>}
+                {finding.techniqueIds.length > 0 && (
+                  <div className="rt-techs">
+                    {finding.techniqueIds.map((t) => <span className="rt-tech" key={t}>{t}</span>)}
+                  </div>
+                )}
+              </>
+            )}
+            <div className="rt-meta rt-hint">完整复现步骤与证据见「报告」标签或 redteam_report 导出。</div>
+          </div>
+        </div>
       )}
     </div>
   )
 }
 
-function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text
+function chainNodeExists(projection: RedteamProjection, id: string): boolean {
+  if (projection.nodes.some((n) => n.id === id)) return true
+  if (projection.findings.some((f) => f.id === id)) return true
+  return projection.edges.some((e) => e.from === id || e.to === id)
 }
 
-function curve(x1: number, y1: number, x2: number, y2: number): string {
-  if (Math.abs(x1 - x2) < 4) return `M ${x1} ${y1} L ${x2} ${y2}`
-  const my = (y1 + y2) / 2
-  return `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text
 }

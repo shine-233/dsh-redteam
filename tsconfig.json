@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "target": "es2024",
+    "lib": ["es2024", "dom", "dom.iterable"],
     "module": "esnext",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
@@ -25,9 +26,8 @@
       "@deepseek-ai/dsh-session-projection/types": ["./types/host/session-projection-types.d.ts"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "types/**/*.d.ts", "tsdown.config.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "tests/**/*.tsx", "types/**/*.d.ts", "tsdown.config.ts"],
   "exclude": [
-    "src/client",
     "tests/fakes"
   ]
 }

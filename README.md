@@ -52,6 +52,8 @@ dsh plugin --profile web add file:C:\path\to\dsh-redteam-0.3.0.tgz
 | CWE 弱点映射 | PwnDoc 漏洞库标配 | finding 可挂 `cweIds`（CWE-79 格式），写入校验，SARIF tags 携带 |
 | 样本登记 | 恶意软件分析报告惯例 | `redteam_add_sample` 以 sha256（64 hex 强制）为保管链锚点登记二进制/文档/内存转储，附 md5/sha1/格式/架构 |
 | IOC 追踪 | MISP/Cuckoo 提取工作流 | `redteam_add_ioc` 按 ip/domain/url/hash/mutex/registry/filepath/user-agent 分类记录指标，可挂样本与意图，报告输出 IOC 附录表 |
+| 目标核对单 | CTFd flag 模型 / Cairn prove_goal | `redteam_add_objective` + `redteam_prove_objective`：逐项成功标准（拿域管/读 PII 表）独立证明或撤回，报告核对单带证明时间戳 |
+| CVE 引用 | NVD/DefectDojo 惯例 | finding 可挂 `cveIds`（CVE-2024-12345 格式校验），SARIF tags 携带 |
 
 ## 架构速览
 
@@ -60,7 +62,7 @@ dsh plugin --profile web add file:C:\path\to\dsh-redteam-0.3.0.tgz
 - **工具**（`src/tools.ts`）：15 个 —— `redteam_add_goal`（authorization 必填，重开 goal 关闭旧 engagement）/ `redteam_add_intent`（可选 phase）/ `redteam_add_evidence` / `redteam_add_fact`（evidenceIds 引用、可选 phase）/ `redteam_add_asset`（parentId 留空为根资产，tags 指纹）/ `redteam_add_finding`（reproducibleSteps 必填；cvssVector 自动算分；techniqueIds/owaspIds 校验）/ `redteam_add_credential`（凭据登记，脱敏展示）/ `redteam_update_intent`（任务树状态推进）/ `redteam_retest_finding`（复测闭环）/ `redteam_update_credential`(验证凭据) / `redteam_submit`（子 agent 分批直写指定父 intent）/ `redteam_state` / `redteam_graph` / `redteam_report`（markdown|json）/ `redteam_engagements`（历史列表）。
 - **CVSS 计算**（`src/cvss.ts`）：FIRST CVSS v3.1 基础分实现（含官方 roundup 防浮点漂移），20 个参考向量测试覆盖。
 - **会话投影**（`src/projection.ts`）：折叠已日志化的 `redteam_*` 调用为 `{ goal, nodes, assets, findings, credentials, counts }`，镜像 store 的引用拒绝；密文永不进入投影。
-- **Web 标签页**（`src/client/`）：按会话注册（当前会话或祖先链含 redteam 预设即显示）；五个子标签——探索链路（关系图）、漏洞（严重度/CVSS 分值/ATT&CK 技术标签）、资产、凭据（脱敏列表）、报告（Markdown 渲染、复制与保存）。
+- **Web 标签页**（`src/client/`）：按会话注册（当前会话或祖先链含 redteam 预设即显示）；十一个子标签——链路（canvas 力导向图：拖拽/缩放/悬停高亮/点选详情抽屉/方向粒子流）、统计（严重度环形图、任务树与覆盖度动画进度条、ATT&CK 覆盖墙、kill-chain 泳道）、立体（零依赖 3D 攻击地形：轨道旋转/推拉/自动旋转/深度排序）、漏洞、资产、凭据（脱敏列表）、产物、样本、IOC（类型筛选）、目标（crown-jewel 清单）、报告。
 - **协议**（`src/instructions.ts`）：系统提示词段 `redteam:protocol`（order 50），双语逐字撰写而非运行时翻译；要求授权留痕、事实必留证、漏洞必可复现、凭据不落明文。
 
 ## 已知边界
@@ -92,7 +94,7 @@ dsh-redteam/
 │   ├── tools.ts               #   11 个 redteam_* 工具
 │   ├── projection.ts          #   会话投影定义
 │   ├── instructions.ts        #   双语协议提示词段
-│   ├── client/                #   浏览器半：RedteamView / ChainGraph / FindingsView / AssetsView / ReportView
+│   ├── client/                #   浏览器半：RedteamView / ChainGraph(canvas 力导向) / Stats / View3D / Findings / Assets / Credentials / Artifacts / Samples / Iocs / Objectives / Report
 │   └── storage-sqlite/        #   sqlite 后端（node:sqlite）
 ├── preset/redteam/            # 「红队模式」agent 预设（bundle 自动注册）
 ├── lib/                       # 构建产物（npm pack 内容）

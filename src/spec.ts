@@ -25,6 +25,7 @@ import type {
   HintRecord,
   IntentRecord,
   IocRecord,
+  ObjectiveRecord,
   SampleRecord,
 } from './types.js'
 import {
@@ -42,7 +43,7 @@ import {
   SAMPLE_KINDS,
   SEVERITIES,
 } from './types.js'
-import { ATTACK_TECHNIQUE_RE, CWE_ID_RE, MD5_RE, OWASP_CATEGORY_RE, SHA1_RE, SHA256_RE } from './cvss.js'
+import { ATTACK_TECHNIQUE_RE, CVE_ID_RE, CWE_ID_RE, MD5_RE, OWASP_CATEGORY_RE, SHA1_RE, SHA256_RE } from './cvss.js'
 
 export const REDTEAM_DOMAIN_VERSION = 1
 
@@ -108,6 +109,7 @@ export const findingSchema = z.object({
   techniqueIds: z.array(z.string().regex(ATTACK_TECHNIQUE_RE)).optional(),
   owaspIds: z.array(z.string().regex(OWASP_CATEGORY_RE)).optional(),
   cweIds: z.array(z.string().regex(CWE_ID_RE)).optional(),
+  cveIds: z.array(z.string().regex(CVE_ID_RE)).optional(),
   detected: z.enum(DETECTION_OUTCOMES).optional(),
   cvssVector: z.string().optional(),
   cvssScore: z.number().min(0).max(10).optional(),
@@ -171,6 +173,14 @@ export const sampleSchema = z.object({
   createdAt: isoTime,
 })
 
+export const objectiveSchema = z.object({
+  sessionId: z.string(),
+  title: z.string().min(1),
+  provenAt: isoTime.optional(),
+  evidenceIds: z.array(z.string()).optional(),
+  createdAt: isoTime,
+})
+
 export const iocSchema = z.object({
   sessionId: z.string(),
   type: z.enum(IOC_TYPES),
@@ -196,5 +206,6 @@ export const redteamDomainSpec = defineDomain({
     hints: domainTable<string, HintRecord>(hintSchema),
     samples: domainTable<string, SampleRecord>(sampleSchema),
     iocs: domainTable<string, IocRecord>(iocSchema),
+    objectives: domainTable<string, ObjectiveRecord>(objectiveSchema),
   },
 })

@@ -138,6 +138,8 @@ export interface FindingRecord {
   readonly owaspIds?: readonly string[] | undefined
   /** CWE weakness ids (`CWE-79`). */
   readonly cweIds?: readonly string[] | undefined
+  /** CVE references for known vulnerabilities (`CVE-2024-12345`). */
+  readonly cveIds?: readonly string[] | undefined
   /** Blue-team feedback: did defenses notice this action? */
   readonly detected?: DetectionOutcome | undefined
   /** CVSS v3.1 base vector; `cvssScore` is derived at write time. */
@@ -261,6 +263,19 @@ export interface IocRecord {
   readonly createdAt: number
 }
 
+/**
+ * One success criterion of the engagement (CTFd-style flag / red-team crown
+ * jewel). Independent of the goal verdict: each proves or stays open.
+ */
+export interface ObjectiveRecord {
+  readonly sessionId: string
+  readonly title: string
+  /** When proven; absent means still open. */
+  readonly provenAt?: number | undefined
+  readonly evidenceIds?: readonly string[] | undefined
+  readonly createdAt: number
+}
+
 /** Edge relations derived from record references at read time. */
 export type EdgeRelation = 'spawns' | 'yields' | 'derived_from' | 'proves' | 'parent' | 'depends_on'
 
@@ -281,6 +296,7 @@ export interface EngagementCounts {
   readonly hints: number
   readonly samples: number
   readonly iocs: number
+  readonly objectives: number
 }
 
 /** Summary returned by `redteam_state`. */
@@ -305,6 +321,10 @@ export interface RedteamViewNode {
   readonly status: IntentStatus | null
   /** Assets this intent targets (empty on goal nodes). */
   readonly assetIds: readonly string[]
+  /** Kill-chain phase (intent nodes; absent on goal/legacy). */
+  readonly phase?: Phase | null | undefined
+  /** Planned ATT&CK techniques (intent nodes; absent on goal/legacy). */
+  readonly techniqueIds?: readonly string[]
 }
 
 export interface RedteamViewAsset {
@@ -372,6 +392,13 @@ export interface RedteamViewIoc {
   readonly sampleId: string | null
 }
 
+/** Objective checklist entry as seen by the Web tab. */
+export interface RedteamViewObjective {
+  readonly id: string
+  readonly title: string
+  readonly provenAt: number | null
+}
+
 export interface RedteamProjection {
   readonly goal: {
     objective: string
@@ -386,6 +413,7 @@ export interface RedteamProjection {
   readonly hints: readonly RedteamViewHint[]
   readonly samples: readonly RedteamViewSample[]
   readonly iocs: readonly RedteamViewIoc[]
+  readonly objectives: readonly RedteamViewObjective[]
   readonly edges: readonly GraphEdge[]
   readonly counts: EngagementCounts
 }

@@ -154,6 +154,8 @@
             - redteam_add_hint
             - redteam_add_sample
             - redteam_add_ioc
+            - redteam_add_objective
+            - redteam_prove_objective
             - redteam_update_intent
             - redteam_retest_finding
             - redteam_update_credential
@@ -207,6 +209,8 @@
             - redteam_add_hint
             - redteam_add_sample
             - redteam_add_ioc
+            - redteam_add_objective
+            - redteam_prove_objective
             - redteam_update_intent
             - redteam_retest_finding
             - redteam_update_credential
@@ -268,7 +272,7 @@
 
 # ── red-team mode ───────────────────────────────────────────────────────────
 
-# The single redteam plugin: twenty model-facing redteam_* tools on the
+# The single redteam plugin: twenty-two model-facing redteam_* tools on the
 # host tools registry, the redteam:protocol system-prompt section, and the
 # standing session-projection unit for the Web tab. Publishes no service;
 # consumes the host storageDomain facility; needs no realm.

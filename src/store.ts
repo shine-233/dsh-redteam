@@ -26,6 +26,7 @@ import type {
   HintRecord,
   IntentRecord,
   IocRecord,
+  ObjectiveRecord,
   RedteamProjection,
   RedteamViewAsset,
   RedteamViewNode,
@@ -44,9 +45,10 @@ import {
   hintSchema,
   intentSchema,
   iocSchema,
+  objectiveSchema,
   sampleSchema,
 } from './spec.js'
-import { ATTACK_TECHNIQUE_RE, CWE_ID_RE, MD5_RE, OWASP_CATEGORY_RE, SHA1_RE, SHA256_RE, scoreVector, validCweIds, validOwaspIds, validTechniqueIds } from './cvss.js'
+import { ATTACK_TECHNIQUE_RE, CVE_ID_RE, CWE_ID_RE, MD5_RE, OWASP_CATEGORY_RE, SHA1_RE, SHA256_RE, scoreVector, validCweIds, validOwaspIds, validTechniqueIds } from './cvss.js'
 import { maskSecret } from './secrets.js'
 
 /** Machine-tagged store failure surfaced verbatim to the calling tool. */
@@ -97,6 +99,7 @@ export interface NewFinding {
   techniqueIds?: string[]
   owaspIds?: string[]
   cweIds?: string[]
+  cveIds?: string[]
   /** Blue-team feedback on this action (VECTR-style). */
   detected?: import('./types.js').DetectionOutcome
   /** CVSS v3.1 base vector; score derived automatically when it parses. */
@@ -143,6 +146,10 @@ export interface NewSample {
   intentId?: string
 }
 
+export interface NewObjective {
+  title: string
+}
+
 export interface NewIoc {
   type: import('./types.js').IocType
   value: string
@@ -177,7 +184,7 @@ export interface SubmitResult {
 
 type RecordTable =
   | 'goals' | 'intents' | 'facts' | 'assets' | 'findings' | 'evidence'
-  | 'credentials' | 'artifacts' | 'hints' | 'samples' | 'iocs'
+  | 'credentials' | 'artifacts' | 'hints' | 'samples' | 'iocs' | 'objectives'
 
 const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   intents: 'intent',
@@ -190,6 +197,7 @@ const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   hints: 'hint',
   samples: 'sample',
   iocs: 'ioc',
+  objectives: 'obj',
 }
 
 interface Sessioned {
@@ -470,6 +478,12 @@ export class EngagementStore {
         `cweIds must be CWE weakness ids like 'CWE-79': ${input.cweIds.filter((id) => !CWE_ID_RE.test(id)).join(', ')}`,
       )
     }
+    if (input.cveIds !== undefined && !input.cveIds.every((id) => CVE_ID_RE.test(id))) {
+      throw new StoreError(
+        'invalid-record',
+        `cveIds must be CVE references like 'CVE-2024-12345': ${input.cveIds.filter((id) => !CVE_ID_RE.test(id)).join(', ')}`,
+      )
+    }
     if (
       input.detected !== undefined
       && !DETECTION_OUTCOMES.includes(input.detected)
@@ -503,6 +517,9 @@ export class EngagementStore {
         : {}),
       ...(input.cweIds !== undefined && input.cweIds.length > 0
         ? { cweIds: [...input.cweIds] }
+        : {}),
+      ...(input.cveIds !== undefined && input.cveIds.length > 0
+        ? { cveIds: [...input.cveIds] }
         : {}),
       ...(input.detected !== undefined ? { detected: input.detected } : {}),
       ...(score !== null ? { cvssVector: input.cvssVector, cvssScore: score } : {}),
@@ -642,6 +659,40 @@ export class EngagementStore {
     })
     await this.put('iocs', id, parsed as IocRecord)
     return id
+  }
+
+  /** Add one success criterion to the engagement checklist. */
+  async addObjective(sessionId: string, input: NewObjective): Promise<string> {
+    this.requireActiveGoal(sessionId)
+    const id = this.nextId('objectives', sessionId)
+    const parsed = objectiveSchema.parse({
+      sessionId,
+      title: input.title,
+      createdAt: Date.now(),
+    })
+    await this.put('objectives', id, parsed as ObjectiveRecord)
+    return id
+  }
+
+  /** Prove/unprove a checklist entry; evidence ids document the proof. */
+  async proveObjective(sessionId: string, objectiveId: string, patch: {
+    proven?: boolean
+    evidenceIds?: string[]
+  }): Promise<ObjectiveRecord & { id: string }> {
+    this.requireEvidence(sessionId, patch.evidenceIds ?? [])
+    const existing = this.get<ObjectiveRecord>('objectives', sessionId, objectiveId)
+    if (existing === undefined) {
+      throw new StoreError('missing-ref', `objective '${objectiveId}' does not exist in this session`)
+    }
+    const updated: ObjectiveRecord = patch.proven === false
+      ? { ...existing, provenAt: undefined, evidenceIds: undefined }
+      : {
+          ...existing,
+          provenAt: existing.provenAt ?? Date.now(),
+          ...(patch.evidenceIds !== undefined ? { evidenceIds: [...patch.evidenceIds] } : {}),
+        }
+    await this.put('objectives', objectiveId, updated)
+    return { ...updated, id: objectiveId }
   }
 
   /**
@@ -956,6 +1007,7 @@ export class EngagementStore {
       hints: this.rowsInWindow('hints', sessionId, w).length,
       samples: this.rowsInWindow('samples', sessionId, w).length,
       iocs: this.rowsInWindow('iocs', sessionId, w).length,
+      objectives: this.rowsInWindow('objectives', sessionId, w).length,
     }
   }
 
@@ -966,6 +1018,7 @@ export class EngagementStore {
     progress: { active: number; done: number; blocked: number }
     coverage: { tested: string[]; untested: string[] }
     techniques: { attempted: string[]; proven: string[] }
+    objectiveProgress: { total: number; proven: number }
   } {
     const goal = this.currentGoal(sessionId)
     const win = this.windowOf(sessionId)
@@ -983,6 +1036,7 @@ export class EngagementStore {
       progress,
       coverage: this.coverage(sessionId),
       techniques: this.techniqueCoverage(sessionId),
+      objectiveProgress: this.objectiveProgress(sessionId),
     }
   }
 
@@ -1120,6 +1174,11 @@ export class EngagementStore {
       value: i.value,
       sampleId: i.sampleId ?? null,
     }))
+    const objectives = records.objectives.map(([id, o]) => ({
+      id,
+      title: o.title,
+      provenAt: o.provenAt ?? null,
+    }))
     return {
       goal: goal === undefined
         ? null
@@ -1136,6 +1195,7 @@ export class EngagementStore {
       hints,
       samples,
       iocs,
+      objectives,
       edges: graph.edges,
       counts: graph.counts,
     }
@@ -1188,6 +1248,7 @@ export class EngagementStore {
       hints: this.rowsInWindow('hints', sid, win).length,
       samples: this.rowsInWindow('samples', sid, win).length,
       iocs: this.rowsInWindow('iocs', sid, win).length,
+      objectives: this.rowsInWindow('objectives', sid, win).length,
     }
   }
 
@@ -1204,10 +1265,11 @@ export class EngagementStore {
     hints: [string, HintRecord][]
     samples: [string, SampleRecord][]
     iocs: [string, IocRecord][]
+    objectives: [string, ObjectiveRecord][]
   } {
     const win = this.windowOf(sessionId)
     if (win === null) {
-      return { goal: null, intents: [], facts: [], assets: [], findings: [], evidence: [], credentials: [], artifacts: [], hints: [], samples: [], iocs: [] }
+      return { goal: null, intents: [], facts: [], assets: [], findings: [], evidence: [], credentials: [], artifacts: [], hints: [], samples: [], iocs: [], objectives: [] }
     }
     return {
       goal: (({ id: _id, ...rest }) => rest)(this.currentGoal(sessionId)!),
@@ -1221,6 +1283,7 @@ export class EngagementStore {
       hints: this.rowsInWindow('hints', sessionId, win) as [string, HintRecord][],
       samples: this.rowsInWindow('samples', sessionId, win) as [string, SampleRecord][],
       iocs: this.rowsInWindow('iocs', sessionId, win) as [string, IocRecord][],
+      objectives: this.rowsInWindow('objectives', sessionId, win) as [string, ObjectiveRecord][],
     }
   }
 
@@ -1236,6 +1299,14 @@ export class EngagementStore {
       status: c.status,
       secretMasked: maskSecret(c.secret),
     }))
+  }
+
+  /** Checklist progress over the current engagement. */
+  objectiveProgress(sessionId: string): { total: number; proven: number } {
+    const win = this.windowOf(sessionId)
+    if (win === null) return { total: 0, proven: 0 }
+    const rows = this.rowsInWindow('objectives', sessionId, win) as [string, ObjectiveRecord][]
+    return { total: rows.length, proven: rows.filter(([, o]) => o.provenAt !== undefined).length }
   }
 
   edgeRelations(): readonly EdgeRelation[] {
@@ -1254,4 +1325,5 @@ const EMPTY_COUNTS: EngagementCounts = {
   hints: 0,
   samples: 0,
   iocs: 0,
+  objectives: 0,
 }
