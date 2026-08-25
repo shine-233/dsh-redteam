@@ -15,7 +15,7 @@ dsh plugin --profile web add https://github.com/shine-233/dsh-redteam/releases/l
 ### 从本地文件安装
 
 ```sh
-dsh plugin --profile web add file:C:\path\to\dsh-redteam-0.3.0.tgz
+dsh plugin --profile web add file:C:\path\to\dsh-redteam-1.2.0.tgz
 ```
 
 重启 dsh 后，在新会话中选择自动注册的「红队模式」预设。

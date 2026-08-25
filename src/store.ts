@@ -1395,10 +1395,11 @@ export class EngagementStore {
     samples: [string, SampleRecord][]
     iocs: [string, IocRecord][]
     objectives: [string, ObjectiveRecord][]
+    scopeEntries: [string, ScopeEntryRecord][]
   } {
     const win = this.windowOf(sessionId)
     if (win === null) {
-      return { goal: null, intents: [], facts: [], assets: [], findings: [], evidence: [], credentials: [], artifacts: [], hints: [], samples: [], iocs: [], objectives: [] }
+      return { goal: null, intents: [], facts: [], assets: [], findings: [], evidence: [], credentials: [], artifacts: [], hints: [], samples: [], iocs: [], objectives: [], scopeEntries: [] }
     }
     return {
       goal: (({ id: _id, ...rest }) => rest)(this.currentGoal(sessionId)!),
@@ -1413,6 +1414,7 @@ export class EngagementStore {
       samples: this.rowsInWindow('samples', sessionId, win) as [string, SampleRecord][],
       iocs: this.rowsInWindow('iocs', sessionId, win) as [string, IocRecord][],
       objectives: this.rowsInWindow('objectives', sessionId, win) as [string, ObjectiveRecord][],
+      scopeEntries: this.rowsInWindow('scope_entries', sessionId, win) as [string, ScopeEntryRecord][],
     }
   }
 

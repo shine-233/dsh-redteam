@@ -22,7 +22,9 @@ export function ReportView({ projection, sessionId }: { projection: RedteamProje
       <pre>{`导出红队测试报告（redteam_report，format=markdown，includeEvidence=true）`}</pre>
       <p>
         机器可读格式：<code>format=json</code>（全量）、<code>format=sarif</code>（GitHub/GitLab code scanning）、
-        <code>format=navlayer</code>（ATT&amp;CK Navigator 覆盖层）、<code>format=stix</code>（STIX 2.1 IOC/漏洞 bundle）。
+        <code>format=navlayer</code>（ATT&amp;CK Navigator 覆盖层）、<code>format=stix</code>（STIX 2.1 bundle）、
+        <code>format=taxii</code>（TAXII 2.1 信封）、<code>format=ioc-csv</code>（IOC 表格行）、
+        <code>format=html</code>（自包含单页，可直接发客户）。
         历史 engagement 用 <code>redteam_engagements</code> 查看。
       </p>
       <p className="rt-hint">

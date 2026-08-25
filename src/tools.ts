@@ -639,6 +639,8 @@ async function jsonReport(store: import('./store.js').EngagementStore, sid: stri
     samples: Object.fromEntries(records.samples),
     iocs: Object.fromEntries(records.iocs),
     objectives: store.state(sid).objectiveProgress,
+    scopeEntries: Object.fromEntries(records.scopeEntries),
+    scopeViolations: store.state(sid).scope.violations,
   }
 }
 
