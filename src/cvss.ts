@@ -4,6 +4,8 @@
  * report renderer.
  */
 
+import { parseCvss4 } from './cvss4.js'
+
 const METRICS = {
   AV: { N: 0.85, A: 0.77, L: 0.55, P: 0.62 },
   AC: { L: 0.77, H: 0.44 },
@@ -102,6 +104,22 @@ export function cvssBaseScore(base: CvssBase): number {
 export function scoreVector(vector: string): number | null {
   const base = parseCvssVector(vector)
   return base === null ? null : cvssBaseScore(base)
+}
+
+/**
+ * Vector → score across CVSS versions: v3.1 vectors go through the local
+ * engine, `CVSS:4.0/…` vectors through the official-algorithm port. Returns
+ * null when the vector does not parse under either grammar.
+ */
+export function scoreAnyVector(vector: string): number | null {
+  if (vector.startsWith('CVSS:4.0')) {
+    try {
+      return parseCvss4(vector).baseScore
+    } catch {
+      return null
+    }
+  }
+  return scoreVector(vector)
 }
 
 /** MITRE ATT&CK technique id (`T1110`) or sub-technique (`T1110.003`). */

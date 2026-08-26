@@ -28,6 +28,7 @@ import type {
   IntentRecord,
   IocRecord,
   ObjectiveRecord,
+  OperatorRecord,
   RedteamProjection,
   RedteamViewAsset,
   RedteamViewNode,
@@ -35,7 +36,7 @@ import type {
   ScopeEntryRecord,
   Severity,
 } from './types.js'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_FLAGS, INTENT_STATUSES, IOC_TYPES, SAMPLE_KINDS, SCOPE_KINDS, SEVERITIES } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_FLAGS, INTENT_STATUSES, IOC_TYPES, OPERATOR_ROLES, SAMPLE_KINDS, SCOPE_KINDS, SEVERITIES, SLA_POLICY_DAYS } from './types.js'
 import {
   artifactSchema,
   assetSchema,
@@ -50,6 +51,7 @@ import {
   objectiveSchema,
   sampleSchema,
   scopeEntrySchema,
+  operatorSchema,
 } from './spec.js'
 import { scopeCheck } from './scope.js'
 import { ATTACK_TECHNIQUE_RE, CVE_ID_RE, CWE_ID_RE, MD5_RE, OWASP_CATEGORY_RE, SHA1_RE, SHA256_RE, scoreVector, validCweIds, validOwaspIds, validTechniqueIds } from './cvss.js'
@@ -61,6 +63,7 @@ export class StoreError extends Error {
     | 'no-active-engagement'
     | 'missing-ref'
     | 'invalid-record'
+    | 'forbidden'
 
   constructor(code: StoreError['code'], message: string) {
     super(message)
@@ -96,6 +99,8 @@ export interface NewFinding {
   title: string
   severity: Severity
   description: string
+  /** Override the severity SLA policy with an explicit number of days. */
+  slaDays?: number
   reproducibleSteps: string[]
   affectedAssetId?: string
   evidenceIds?: string[]
@@ -196,6 +201,7 @@ type RecordTable =
   | 'goals' | 'intents' | 'facts' | 'assets' | 'findings' | 'evidence'
   | 'credentials' | 'artifacts' | 'hints' | 'samples' | 'iocs' | 'objectives'
   | 'scope_entries'
+  | 'operators'
 
 const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   intents: 'intent',
@@ -210,6 +216,7 @@ const ID_PREFIX: Record<Exclude<RecordTable, 'goals'>, string> = {
   iocs: 'ioc',
   objectives: 'obj',
   scope_entries: 'scope',
+  operators: 'op',
 }
 
 interface Sessioned {
@@ -504,7 +511,7 @@ export class EngagementStore {
     }
     const score = input.cvssVector !== undefined ? scoreVector(input.cvssVector) : null
     if (input.cvssVector !== undefined && score === null) {
-      throw new StoreError('invalid-record', `cvssVector is not a parseable CVSS v3.x base vector: '${input.cvssVector}'`)
+      throw new StoreError('invalid-record', `cvssVector is not a parseable CVSS vector (v3.1 or v4.0): '${input.cvssVector}'`)
     }
     if (input.duplicateOf !== undefined && input.duplicateOf !== '') {
       if (this.get<FindingRecord>('findings', sessionId, input.duplicateOf) === undefined) {
@@ -540,7 +547,12 @@ export class EngagementStore {
         : {}),
       createdAt: Date.now(),
     })
-    await this.put('findings', id, parsed as FindingRecord)
+    // SLA stamp: explicit slaDays wins, else the severity policy; null = no deadline.
+    const slaDays = input.slaDays !== undefined ? input.slaDays : SLA_POLICY_DAYS[input.severity]
+    const record: FindingRecord = slaDays !== null && slaDays !== undefined
+      ? { ...parsed, slaDueAt: (parsed.createdAt as number) + slaDays * 86_400_000 } as FindingRecord
+      : parsed as FindingRecord
+    await this.put('findings', id, record)
     return id
   }
 
@@ -1070,7 +1082,7 @@ export class EngagementStore {
         throw new StoreError('invalid-record', `owaspIds must be OWASP Top 10 categories: ${item.owaspIds.join(', ')}`)
       }
       if (item.cvssVector !== undefined && scoreVector(item.cvssVector) === null) {
-        throw new StoreError('invalid-record', `cvssVector is not a parseable CVSS v3.x base vector: '${item.cvssVector}'`)
+        throw new StoreError('invalid-record', `cvssVector is not a parseable CVSS vector (v3.1 or v4.0): '${item.cvssVector}'`)
       }
       findingN += 1
     }
@@ -1175,6 +1187,7 @@ export class EngagementStore {
     credentialReuse: { mask: string; targets: string[]; kinds: string[] }[]
     nextSteps: string[]
     scope: { entries: number; violations: import('./types.js').ScopeIssue[] }
+    slaOverdue: { id: string; title: string; dueAt: number; daysOverdue: number }[]
   } {
     const goal = this.currentGoal(sessionId)
     const win = this.windowOf(sessionId)
@@ -1188,12 +1201,16 @@ export class EngagementStore {
     const objectiveProgress = this.objectiveProgress(sessionId)
     const credentialReuse = this.credentialReuse(sessionId)
     const issues = this.scopeIssues(sessionId)
+    const slaOverdue = this.collectSlaOverdue(sessionId, win)
     const unverifiedCredentials = win === null
       ? 0
       : (this.rowsInWindow('credentials', sessionId, win) as [string, CredentialRecord][])
         .filter(([, c]) => c.status === 'unverified').length
     const findingsCount = this.counts(sessionId).findings
     const nextSteps: string[] = []
+    if (slaOverdue.length > 0) {
+      nextSteps.push(`SLA breach: ${slaOverdue.length} finding(s) past their remediation deadline (worst ${slaOverdue[0]!.daysOverdue}d overdue) — escalate or renegotiate`)
+    }
     if (issues.some((i) => i.reason === 'out-of-scope')) {
       nextSteps.push(`scope violation(s) recorded — stop work on those targets and note the boundary (redteam_add_scope out)`)
     } else if (issues.some((i) => i.reason === 'unscoped')) {
@@ -1235,7 +1252,92 @@ export class EngagementStore {
       credentialReuse,
       nextSteps,
       scope: { entries: win === null ? 0 : (this.rowsInWindow('scope_entries', sessionId, win) as [string, ScopeEntryRecord][]).length, violations: issues },
+      slaOverdue,
     }
+  }
+
+  /** Findings past their SLA deadline that are neither fixed nor accepted/FP. */
+  private collectSlaOverdue(sessionId: string, win: { since: number; until: number } | null): { id: string; title: string; dueAt: number; daysOverdue: number }[] {
+    if (win === null) return []
+    const now = Date.now()
+    return (this.rowsInWindow('findings', sessionId, win) as [string, FindingRecord][])
+      .filter(([, f]) => f.slaDueAt !== undefined
+        && f.slaDueAt <= now
+        && f.status !== 'fixed'
+        && f.flag !== 'risk-accepted'
+        && f.flag !== 'false-positive')
+      .map(([id, f]) => ({
+        id,
+        title: f.title,
+        dueAt: f.slaDueAt!,
+        daysOverdue: Math.floor((now - f.slaDueAt!) / 86_400_000),
+      }))
+      .sort((a, b) => b.daysOverdue - a.daysOverdue)
+  }
+
+  /** Register a collaboration participant with their role (upsert by handle). */
+  async addOperator(sessionId: string, input: { handle: string; role: import('./types.js').OperatorRole }): Promise<string> {
+    this.requireActiveGoal(sessionId)
+    const handle = input.handle.trim()
+    if (handle === '') throw new StoreError('invalid-record', 'operator handle must not be empty')
+    if (!OPERATOR_ROLES.includes(input.role)) {
+      throw new StoreError('invalid-record', `invalid role: '${input.role}'`)
+    }
+    const existing = (this.rowsForSession('operators', sessionId) as [string, OperatorRecord][])
+      .find(([, o]) => o.handle === handle)
+    if (existing !== undefined) {
+      const updated: OperatorRecord = { ...existing[1], role: input.role }
+      await this.put('operators', existing[0], updated)
+      return existing[0]
+    }
+    const id = this.nextId('operators', sessionId)
+    const parsed = operatorSchema.parse({ sessionId, handle, role: input.role, createdAt: Date.now() })
+    await this.put('operators', id, parsed as OperatorRecord)
+    return id
+  }
+
+  /**
+   * Role gate for collaboration writes. No actor (or the implicit
+   * 'commander') passes untouched — single-operator sessions keep working;
+   * a named actor must be registered and hold at least `minRole`.
+   */
+  requireActor(sessionId: string, actor: string | undefined, minRole: import('./types.js').OperatorRole): void {
+    if (actor === undefined || actor === '' || actor === 'commander') return
+    const rank = OPERATOR_ROLES.indexOf(minRole)
+    const existing = (this.rowsForSession('operators', sessionId) as [string, OperatorRecord][])
+      .find(([, o]) => o.handle === actor)
+    if (existing === undefined) {
+      throw new StoreError('missing-ref', `actor '${actor}' is not registered — redteam_add_operator first`)
+    }
+    if (OPERATOR_ROLES.indexOf(existing[1].role) < rank) {
+      throw new StoreError('forbidden', `actor '${actor}' (${existing[1].role}) lacks role '${minRole}'`)
+    }
+  }
+
+  /**
+   * Apply external-tracker updates (JIRA bridge, inbound direction): stamp
+   * issue key/status per finding. A tracker-side Done does NOT auto-close —
+   * retest via redteam_retest_finding keeps the evidence chain honest.
+   */
+  async applyTrackerUpdates(
+    sessionId: string,
+    updates: { findingId: string; jiraKey: string; jiraStatus?: string }[],
+  ): Promise<{ updated: string[]; missing: string[] }> {
+    const updated: string[] = []
+    const missing: string[] = []
+    for (const u of updates) {
+      const existing = this.get<FindingRecord>('findings', sessionId, u.findingId)
+      if (existing === undefined) { missing.push(u.findingId); continue }
+      const rec: FindingRecord = {
+        ...existing,
+        jiraKey: u.jiraKey,
+        ...(u.jiraStatus !== undefined ? { jiraStatus: u.jiraStatus } : {}),
+        jiraSyncedAt: Date.now(),
+      }
+      await this.put('findings', u.findingId, rec)
+      updated.push(u.findingId)
+    }
+    return { updated, missing }
   }
 
   /**
@@ -1386,6 +1488,7 @@ export class EngagementStore {
           detected: f.detected ?? null,
           duplicateOf: f.duplicateOf ?? null,
           flag: f.flag ?? null,
+          slaDueAt: f.slaDueAt ?? null,
         }))
     const credentials = this.maskedCredentials(sessionId).map((c) => ({
       id: c.id,

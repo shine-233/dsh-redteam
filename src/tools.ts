@@ -9,10 +9,11 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { randomUUID } from 'node:crypto'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_FLAGS, FINDING_STATUSES, GOAL_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS, SEVERITIES } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_FLAGS, FINDING_STATUSES, GOAL_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, OPERATOR_ROLES, PHASES, SAMPLE_KINDS, SCOPE_KINDS, SEVERITIES } from './types.js'
 import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, NewHint, NewIoc, NewObjective, NewSample, NewScopeEntry, SubmitResult } from './store.js'
 import { maskSecret } from './secrets.js'
 import { scopeMatches } from './scope.js'
+import { parseScanXml } from './scan-import.js'
 
 export interface ToolDeps {
   store: () => Promise<EngagementStore>
@@ -100,7 +101,11 @@ const findingItems = {
     },
     cvssVector: {
       type: 'string',
-      description: "CVSS v3.1 base vector, e.g. 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'; score derived automatically.",
+      description: "CVSS v3.1 base vector ('CVSS:3.1/AV:N/…') or CVSS v4.0 vector ('CVSS:4.0/AV:N/AC:L/AT:N/…'); score derived automatically.",
+    },
+    slaDays: {
+      type: 'number',
+      description: 'Remediation SLA override in days; default follows the severity policy (critical 7 / high 30 / medium 90 / low 180 / info none).',
     },
     duplicateOf: {
       type: 'string',
@@ -397,6 +402,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
   })
 
   const proveObjective = defineTool<{
+    as?: string
     objectiveId: string; proven?: boolean; evidenceIds?: string[]
   }, { objectiveId: string; provenAt: number | null }>({
     name: 'redteam_prove_objective',
@@ -418,6 +424,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
   })
 
   const updateIntent = defineTool<{
+    as?: string
     intentId: string; status?: (typeof INTENT_STATUSES)[number]; title?: string; rationale?: string
   }, { intentId: string; status: string }>({
     name: 'redteam_update_intent',
@@ -434,12 +441,14 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       render: (_a, v) => [{ type: 'text', text: `intent ${v.intentId} → ${v.status}` }],
     },
     execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      store.requireActor(sid, a.as, 'operator')
       const updated = await store.updateIntent(sid, a.intentId, a)
       return { intentId: updated.id, status: updated.status ?? 'active' }
     }, args),
   })
 
   const retestFinding = defineTool<{
+    as?: string
     findingId: string; outcome: 'fixed' | 'still-vulnerable'; notes?: string
   }, { findingId: string; status: string }>({
     name: 'redteam_retest_finding',
@@ -456,12 +465,14 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       render: (_a, v) => [{ type: 'text', text: `finding ${v.findingId} retest → ${v.status}` }],
     },
     execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      store.requireActor(sid, a.as, 'operator')
       const updated = await store.retestFinding(sid, a.findingId, a)
       return { findingId: updated.id, status: updated.status ?? 'confirmed' }
     }, args),
   })
 
   const updateCredential = defineTool<{
+    as?: string
     credentialId: string; status: (typeof CREDENTIAL_STATUSES)[number]; evidenceIds?: string[]
   }, { credentialId: string; status: string }>({
     name: 'redteam_update_credential',
@@ -477,12 +488,14 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       render: (_a, v) => [{ type: 'text', text: `credential ${v.credentialId} → ${v.status}` }],
     },
     execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      store.requireActor(sid, a.as, 'operator')
       const updated = await store.updateCredential(sid, a.credentialId, a)
       return { credentialId: updated.id, status: updated.status }
     }, args),
   })
 
   const closeGoal = defineTool<{
+    as?: string
     outcome: (typeof GOAL_OUTCOMES)[number]; summary?: string
   }, { goalId: string; outcome: string }>({
     name: 'redteam_close_goal',
@@ -496,10 +509,14 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       schema: {},
       render: (_a, v) => [{ type: 'text', text: `engagement ${v.goalId} closed — outcome: ${v.outcome}` }],
     },
-    execute: (args, exec) => withStore(exec, async (store, sid, a) => await store.closeGoal(sid, a), args),
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      store.requireActor(sid, a.as, 'commander')
+      return await store.closeGoal(sid, a)
+    }, args),
   })
 
   const submit = defineTool<{
+    as?: string
     intentId: string; evidence?: NewEvidence[]; facts?: NewFact[]; assets?: NewAsset[]
     findings?: NewFinding[]; credentials?: NewCredential[]; artifacts?: NewArtifact[]
     samples?: NewSample[]; iocs?: NewIoc[]
@@ -525,10 +542,14 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
         text: `submitted → evidence ${v.evidence.length}, assets ${v.assets.length}, credentials ${v.credentials.length}, artifacts ${v.artifacts.length}, samples ${v.samples.length}, iocs ${v.iocs.length}, facts ${v.facts.length}, findings ${v.findings.length}`,
       }],
     },
-    execute: (args, exec) => withStore(exec, async (store, sid, a) => await store.submit(sid, a), args),
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      store.requireActor(sid, a.as, 'operator')
+      return await store.submit(sid, a)
+    }, args),
   })
 
   const flagFinding = defineTool<{
+    as?: string
     findingId: string; flag: import('./types.js').FindingFlag | 'none'; note?: string; evidenceIds?: string[]
   }, { findingId: string; flag: string }>({
     name: 'redteam_flag_finding',
@@ -545,6 +566,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       render: (_a, v) => [{ type: 'text', text: `finding ${v.findingId} → ${v.flag}` }],
     },
     execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      store.requireActor(sid, a.as, 'operator')
       const updated = await store.flagFinding(sid, a.findingId, a)
       return { findingId: updated.id, flag: updated.flag ?? 'none' }
     }, args),
@@ -585,7 +607,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
 
   const state = defineTool<Record<string, never>, StateView>({
     name: 'redteam_state',
-    description: 'Current engagement summary: active goal, record counts, open intents, coverage/technique gaps, credential reuse, and suggested next steps.',
+    description: 'Current engagement summary: active goal, record counts, open intents, coverage/technique gaps, credential reuse, SLA breaches, scope compliance, and suggested next steps.',
     parameters: {},
     output: {
       schema: {},
@@ -596,11 +618,173 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
           progress: v.progress,
           coverage: { tested: v.coverage.tested.length, untested: v.coverage.untested },
           credentialReuse: v.credentialReuse,
+          scope: { entries: v.scope.entries, violations: v.scope.violations.length },
+          slaOverdue: v.slaOverdue,
           nextSteps: v.nextSteps,
         }),
       }],
     },
     execute: (_args, exec) => withStore(exec, async (store, sid) => await store.state(sid), {} as Record<string, never>),
+  })
+
+  const addOperator = defineTool<{ handle: string; role: import('./types.js').OperatorRole }, { operatorId: string }>({
+    name: 'redteam_add_operator',
+    description:
+      "Register a collaboration participant and their role (upsert by handle): commander (full control), operator (writes findings/retests/submits), viewer (read-only). Named actors must be registered before passing role gates on collaboration writes via the `as` argument.",
+    parameters: {
+      handle: { type: 'string', required: true, description: "Actor handle used as the `as` argument on writes." },
+      role: { type: 'string', required: true, enum: [...OPERATOR_ROLES] },
+    },
+    output: {
+      schema: {},
+      render: (a) => [{ type: 'text', text: `operator '${(a as { handle: string }).handle}' registered` }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid) => ({ operatorId: await store.addOperator(sid, args) }), args),
+  })
+
+  const jiraExport = defineTool<Record<string, never>, { issues: unknown[] }>({
+    name: 'redteam_jira_export',
+    description:
+      'Outbound half of the JIRA two-way bridge: renders every non-suppressed finding as a JIRA issue payload (summary/description/priority/labels) carrying its findingId for key bookkeeping. Feed these to your JIRA automation; inbound status flows back through redteam_jira_apply.',
+    parameters: {},
+    output: {
+      schema: {},
+      render: (_a, v) => [{ type: 'text', text: JSON.stringify(v.issues) }],
+    },
+    execute: (_args, exec) => withStore(exec, async (store, sid) => {
+      const r = store.engagementRecords(sid)
+      const issues = [...r.findings]
+        .filter(([, f]) => f.flag !== 'false-positive')
+        .map(([id, f]) => ({
+          findingId: id,
+          ...(f.jiraKey !== undefined ? { jiraKey: f.jiraKey } : {}),
+          fields: {
+            summary: `[${f.severity.toUpperCase()}] ${f.title}`.slice(0, 255),
+            description: [f.description, ...f.reproducibleSteps.map((s, i) => `${i + 1}. ${s}`)].join('\n').slice(0, 30_000),
+            issuetype: { name: 'Bug' },
+            priority: { name: f.severity === 'critical' ? 'Highest' : f.severity === 'high' ? 'High' : f.severity === 'medium' ? 'Medium' : 'Low' },
+            labels: ['redteam', f.severity, ...(f.techniqueIds ?? [])],
+          },
+        }))
+      return { issues }    }, {} as Record<string, never>),
+  })
+
+  const jiraApply = defineTool<{
+    updates: { findingId: string; jiraKey: string; jiraStatus?: string }[]
+  }, { updated: string[]; missing: string[] }>({
+    name: 'redteam_jira_apply',
+    description:
+      "Inbound half of the JIRA bridge: stamp issue keys/statuses back onto findings (jiraKey/jiraStatus/jiraSyncedAt). A tracker-side Done does NOT auto-close a finding — run redteam_retest_finding with evidence to keep the chain honest.",
+    parameters: {
+      updates: {
+        type: 'array', required: true, items: {
+          type: 'object', required: true, additionalProperties: false,
+          properties: {
+            findingId: { type: 'string', required: true },
+            jiraKey: { type: 'string', required: true, description: 'Issue key, e.g. RED-142.' },
+            jiraStatus: { type: 'string', description: 'Tracker-side status snapshot.' },
+          },
+        },
+      },
+    },
+    output: {
+      schema: {},
+      render: (_a, v) => [{
+        type: 'text',
+        text: `tracker sync: ${v.updated.length} stamped${v.missing.length > 0 ? `, ${v.missing.length} missing` : ''}`,
+      }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => await store.applyTrackerUpdates(sid, a.updates), args),
+  })
+
+  const importScan = defineTool<{
+    format: 'nmap-xml' | 'nessus-xml'; xml: string; intentId: string
+  }, { format: string; hosts: number; services: number; findings: number; evidenceId: string }>({
+    name: 'redteam_import_scan',
+    description:
+      'Ingest an nmap or Nessus XML export into the engagement: nmap open ports become host/service assets plus recon facts; Nessus ReportItems become findings (severity-mapped, CVE-linked, plugin_output as the reproduction step, dedupe on title+host). The raw XML is preserved as evidence. Paste it as `xml`.',
+    parameters: {
+      format: { type: 'string', required: true, enum: ['nmap-xml', 'nessus-xml'] },
+      xml: { type: 'string', required: true, description: 'Raw scanner XML export.' },
+      intentId: { type: 'string', required: true, description: 'Parent intent for generated records.' },
+    },
+    output: {
+      schema: {},
+      render: (_a, v) => [{
+        type: 'text',
+        text: `imported ${v.format}: ${v.hosts} host(s), ${v.services} service(s), ${v.findings} finding(s), evidence ${v.evidenceId}`,
+      }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      const parsed = parseScanXml(a.format, a.xml)
+      const evidenceId = await store.addEvidence(sid, {
+        kind: 'output',
+        content: a.xml.slice(0, 65_536),
+        label: `${a.format} import`,
+      })
+      let services = 0
+      let findingsCreated = 0
+      const assetIdByValue = new Map(
+        store.engagementRecords(sid).assets.map(([id, x]) => [x.value, id] as const),
+      )
+      const ensureAsset = async (type: string, value: string, parentId?: string): Promise<string> => {
+        const existing = assetIdByValue.get(value)
+        if (existing !== undefined) return existing
+        const id = await store.addAsset(sid, { type, value, ...(parentId !== undefined ? { parentId } : {}) })
+        assetIdByValue.set(value, id)
+        return id
+      }
+
+      if (parsed.kind === 'nmap') {
+        for (const host of parsed.hosts) {
+          const hostId = await ensureAsset('host', host.hostname ?? host.address)
+          for (const svc of host.services) {
+            await ensureAsset('service', `${host.address}:${svc.port}`, hostId)
+            services += 1
+            void svc.protocol
+          }
+          if (host.services.length > 0) {
+            await store.addFact(sid, a.intentId, {
+              detail: `${host.address}${host.hostname !== null ? ` (${host.hostname})` : ''}: open ${host.services.map((s) => `${s.port}/${s.name}`).join(', ')}`,
+              kind: 'recon',
+              target: host.address,
+              evidenceIds: [evidenceId],
+            })
+          }
+        }
+      } else {
+        for (const host of parsed.hosts) {
+          await ensureAsset('host', host.address)
+        }
+        for (const item of parsed.items) {
+          const hostId = assetIdByValue.get(item.host)
+          const dupe = store.engagementRecords(sid).findings.some(([, f]) =>
+            f.title === item.pluginName && f.affectedAssetId === hostId)
+          if (dupe) continue
+          const steps = [item.output ?? item.description].filter((s) => s !== '').slice(0, 1)
+          await store.addFinding(sid, a.intentId, {
+            title: item.pluginName.slice(0, 200),
+            severity: item.severity,
+            description: item.description.slice(0, 4000),
+            reproducibleSteps: steps.length > 0
+              ? steps
+              : [`scanner plugin ${item.pluginId} hit on ${item.port}/${item.protocol}`],
+            ...(item.solution !== null && item.solution !== '' ? { remediation: item.solution.slice(0, 2000) } : {}),
+            ...(hostId !== undefined ? { affectedAssetId: hostId } : {}),
+            ...(item.cves.length > 0 ? { cveIds: item.cves } : {}),
+            evidenceIds: [],
+          })
+          findingsCreated += 1
+        }
+      }
+      return {
+        format: a.format,
+        hosts: parsed.hosts.length,
+        services,
+        findings: findingsCreated,
+        evidenceId,
+      }
+    }, args),
   })
 
   const graph = defineTool<Record<string, never>, GraphView>({
@@ -663,6 +847,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     addCredential, addArtifact, addHint, addSample, addIoc, addObjective,
     addScopeEntry,
     proveObjective, updateIntent, retestFinding, flagFinding, updateCredential, closeGoal,
+    addOperator, importScan, jiraExport, jiraApply,
     submit, state, search, overview, graph, report, engagements,
   ]
 }
@@ -1316,7 +1501,8 @@ async function markdownReport(
       lines.push('', f.description)
       if (f.affectedAssetId !== undefined) lines.push('', `- 受影响资产 / Affected asset: \`${f.affectedAssetId}\``)
       if (f.cvssVector !== undefined && f.cvssScore !== undefined) {
-        lines.push(`- CVSS v3.1: **${f.cvssScore}** \`${f.cvssVector}\``)
+        const version = f.cvssVector.startsWith('CVSS:4.0') ? 'v4.0' : 'v3.1'
+        lines.push(`- CVSS ${version}: **${f.cvssScore}** \`${f.cvssVector}\``)
       }
       if (f.techniqueIds !== undefined && f.techniqueIds.length > 0) {
         lines.push(`- MITRE ATT&CK: ${f.techniqueIds.map((t) => `\`${t}\``).join(', ')}`)

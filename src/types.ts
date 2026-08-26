@@ -189,6 +189,29 @@ export interface FindingRecord {
   /** Why the triage state was applied (ROE/ticket reference). */
   readonly flagNote?: string | undefined
   readonly flaggedAt?: number | undefined
+  /**
+   * Remediation deadline (epoch ms): createdAt + SLA-policy days unless an
+   * explicit `slaDays` overrode the policy at write time.
+   */
+  readonly slaDueAt?: number | undefined
+  /** External tracker binding (two-way sync contract). */
+  readonly jiraKey?: string | undefined
+  readonly jiraStatus?: string | undefined
+  readonly jiraSyncedAt?: number | undefined
+  /** Handle of the authenticated actor that wrote this finding. */
+  readonly createdBy?: string | undefined
+  readonly createdAt: number
+}
+
+/** Collaboration roles, ranked viewer < operator < commander. */
+export const OPERATOR_ROLES = ['viewer', 'operator', 'commander'] as const
+export type OperatorRole = (typeof OPERATOR_ROLES)[number]
+
+/** Registered engagement participant (`redteam_add_operator`). */
+export interface OperatorRecord {
+  readonly sessionId: string
+  readonly handle: string
+  readonly role: OperatorRole
   readonly createdAt: number
 }
 
@@ -314,6 +337,15 @@ export interface ObjectiveRecord {
   readonly createdAt: number
 }
 
+/** Severity → remediation-SLA days; null means no deadline for the band. */
+export const SLA_POLICY_DAYS: Record<Severity, number | null> = {
+  critical: 7,
+  high: 30,
+  medium: 90,
+  low: 180,
+  info: null,
+}
+
 /** Edge relations derived from record references at read time. */
 export type EdgeRelation = 'spawns' | 'yields' | 'derived_from' | 'proves' | 'parent' | 'depends_on'
 
@@ -390,6 +422,8 @@ export interface RedteamViewFinding {
   readonly duplicateOf: string | null
   /** Triage state; null means untriaged. */
   readonly flag: FindingFlag | null
+  /** Remediation deadline (epoch ms); null when no policy applied. */
+  readonly slaDueAt: number | null
 }
 
 /** Credential as seen by the Web tab — masked, never the raw secret. */

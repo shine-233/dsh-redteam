@@ -2,6 +2,18 @@
 
 所有显著变更记录在本文件。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循语义化。
 
+## [1.7.0] — 2026-08-26
+
+五项平台级特性，对标 DefectDojo / Faraday / FIRST 官方实现。
+
+### 新增
+- **CVSS v4.0 定级**：官方算法逐行移植（RedHatProductSecurity/cvss → `src/cvss4.ts` + 机械转译的 270 项查找表），MacroVector 等价类 + 深度再分配；finding 的 `cvssVector` 按 `CVSS:4.0` 前缀自动分派 v3.1/v4.0 引擎；FIRST 校验向量全部通过
+- **扫描器导入**：`redteam_import_scan format=nmap-xml|nessus-xml`（零依赖 XML 解析 `src/scan-import.ts`）——nmap 开放端口→资产树+侦察事实；Nessus ReportItem→严重度映射、CVE 关联、标题+主机去重的漏洞；原始 XML 存为证据
+- **JIRA 双向桥**：`redteam_jira_export`（issue payload+台账）/`redteam_jira_apply`（回写 jiraKey/jiraStatus）；tracker Done 不自动关闭，必须复测留证
+- **多用户角色门禁**：`redteam_add_operator`（commander/operator/viewer，第 14 张表 operators）+ 协作写入的 `as` 参数角色门（匿名单人不受限）
+- **SLA 时限追踪**：按严重度策略自动盖章（7/30/90/180 天，slaDays 覆盖）；state 输出逾期清单与升级提示；Web 卡片 ⏰ 徽章
+- 子代理围栏收编 4 个新工具
+
 ## [1.6.0] — 2026-08-26
 
 对标 DefectDojo 分诊工作流与度量面板的成熟度迭代。

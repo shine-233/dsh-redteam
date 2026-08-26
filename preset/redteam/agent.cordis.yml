@@ -147,6 +147,10 @@
             - redteam_update_intent
             - redteam_retest_finding
             - redteam_flag_finding
+            - redteam_add_operator
+            - redteam_import_scan
+            - redteam_jira_export
+            - redteam_jira_apply
             - redteam_update_credential
             - redteam_close_goal
             - redteam_state
@@ -193,6 +197,10 @@
             - redteam_update_intent
             - redteam_retest_finding
             - redteam_flag_finding
+            - redteam_add_operator
+            - redteam_import_scan
+            - redteam_jira_export
+            - redteam_jira_apply
             - redteam_update_credential
             - redteam_close_goal
             - redteam_state
@@ -250,7 +258,7 @@
     searchTimeoutMs: 60000
 
 # 闁冲厜鍋撻柍鍏夊亾 red-team mode 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?
-# The single redteam plugin: twenty-five model-facing redteam_* tools on the
+# The single redteam plugin: twenty-nine model-facing redteam_* tools on the
 # host tools registry, the redteam:protocol system-prompt section, and the
 # standing session-projection unit for the Web tab. Publishes no service;
 # consumes the host storageDomain facility; needs no realm.

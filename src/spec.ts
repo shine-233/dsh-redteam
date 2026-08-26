@@ -26,6 +26,7 @@ import type {
   IntentRecord,
   IocRecord,
   ObjectiveRecord,
+  OperatorRecord,
   SampleRecord,
   ScopeEntryRecord,
 } from './types.js'
@@ -41,6 +42,7 @@ import {
   HINT_SOURCES,
   INTENT_STATUSES,
   IOC_TYPES,
+  OPERATOR_ROLES,
   PHASES,
   SAMPLE_KINDS,
   SCOPE_KINDS,
@@ -123,6 +125,11 @@ export const findingSchema = z.object({
   flag: z.enum(FINDING_FLAGS).optional(),
   flagNote: z.string().optional(),
   flaggedAt: isoTime.optional(),
+  slaDueAt: isoTime.optional(),
+  jiraKey: z.string().optional(),
+  jiraStatus: z.string().optional(),
+  jiraSyncedAt: isoTime.optional(),
+  createdBy: z.string().optional(),
   createdAt: isoTime,
 })
 
@@ -205,6 +212,13 @@ export const scopeEntrySchema = z.object({
   createdAt: isoTime,
 })
 
+export const operatorSchema = z.object({
+  sessionId: z.string(),
+  handle: z.string().min(1),
+  role: z.enum(OPERATOR_ROLES),
+  createdAt: isoTime,
+})
+
 export const redteamDomainSpec = defineDomain({
   name: 'redteam',
   version: REDTEAM_DOMAIN_VERSION,
@@ -222,5 +236,6 @@ export const redteamDomainSpec = defineDomain({
     iocs: domainTable<string, IocRecord>(iocSchema),
     objectives: domainTable<string, ObjectiveRecord>(objectiveSchema),
     scope_entries: domainTable<string, ScopeEntryRecord>(scopeEntrySchema),
+    operators: domainTable<string, OperatorRecord>(operatorSchema),
   },
 })

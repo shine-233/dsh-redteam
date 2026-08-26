@@ -343,6 +343,162 @@ describe('redteam tools', () => {
     expect(tool.ok).toBe(true)
   })
 
+  it('stamps SLA deadlines from the severity policy with override', async () => {
+    const { registry, store } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'sla', authorization: 'ROE-19' }, exec)
+    await registry.call('redteam_add_intent', { title: 'i' }, exec)
+    // slaDays: 0 → deadline = createdAt → immediately overdue.
+    const f1 = await registry.call('redteam_add_finding', {
+      intentId: 'intent-1', title: 'overdue one', severity: 'high', description: '',
+      reproducibleSteps: ['s'], slaDays: 0,
+    }, exec)
+    const proj = store.projection('session-1')
+    expect(proj.findings[0]!.slaDueAt).not.toBeNull()
+    const state = store.state('session-1')
+    expect(state.slaOverdue).toHaveLength(1)
+    expect(state.nextSteps.some((s) => s.includes('SLA breach'))).toBe(true)
+    void f1
+
+    // Info findings get no deadline by default.
+    await registry.call('redteam_add_finding', {
+      intentId: 'intent-1', title: 'info note', severity: 'info', description: '',
+      reproducibleSteps: ['s'],
+    }, exec)
+    expect(store.projection('session-1').findings[1]!.slaDueAt).toBeNull()
+    expect(store.state('session-1').slaOverdue).toHaveLength(1)
+
+    // Markdown report shows the SLA section via nextSteps only; state carries data.
+    const md = await registry.call('redteam_report', {}, exec)
+    expect((md.value as { body: string }).body).toContain('SLA breach')
+  })
+
+  it('bridges JIRA keys/statuses in and out', async () => {
+    const { registry, store } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'jira bridge', authorization: 'ROE-20' }, exec)
+    await registry.call('redteam_add_intent', { title: 'i' }, exec)
+    await registry.call('redteam_add_finding', {
+      intentId: 'intent-1', title: 'xss', severity: 'medium', description: '',
+      reproducibleSteps: ['payload'],
+    }, exec)
+
+    const exported = await registry.call('redteam_jira_export', {}, exec)
+    const issues = (exported.value as { issues: { findingId: string; fields: { summary: string; labels: string[] } }[] }).issues
+    expect(issues).toHaveLength(1)
+    expect(issues[0]!.fields.summary).toBe('[MEDIUM] xss')
+    expect(issues[0]!.findingId).toBe('finding-1')
+
+    const applied = await registry.call('redteam_jira_apply', {
+      updates: [{ findingId: 'finding-1', jiraKey: 'RED-142', jiraStatus: 'In Progress' }],
+    }, exec)
+    expect(applied.value).toEqual({ updated: ['finding-1'], missing: [] })
+
+    const rec = store.engagementRecords('session-1').findings[0]![1]
+    expect(rec.jiraKey).toBe('RED-142')
+    expect(rec.jiraStatus).toBe('In Progress')
+
+    // Missing finding ids are reported, not thrown.
+    const partial = await registry.call('redteam_jira_apply', {
+      updates: [{ findingId: 'finding-nope', jiraKey: 'RED-999' }],
+    }, exec)
+    expect(partial.value).toEqual({ updated: [], missing: ['finding-nope'] })
+  })
+
+  it('imports nmap XML into assets, facts, and evidence', async () => {
+    const { registry, store } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'nmap import', authorization: 'ROE-21' }, exec)
+    await registry.call('redteam_add_intent', { title: 'external recon' }, exec)
+    const xml = `<?xml version="1.0"?><nmaprun><host><address addr="203.0.113.50" addrtype="ipv4"/>` +
+      `<hostnames><hostname name="vpn.corp.example"/></hostnames>` +
+      `<ports>` +
+      `<port protocol="tcp" portid="443"><state state="open"/><service name="https" product="nginx" version="1.24"/></port>` +
+      `<port protocol="tcp" portid="1194"><state state="open"/><service name="openvpn"/></port>` +
+      `<port protocol="tcp" portid="3306"><state state="closed"/><service name="mysql"/></port>` +
+      `</ports></host></nmaprun>`
+
+    const result = await registry.call('redteam_import_scan', { format: 'nmap-xml', xml, intentId: 'intent-1' }, exec)
+    expect(result.ok).toBe(true)
+    expect(result.value).toMatchObject({ hosts: 1, services: 2 })
+    expect((result.value as { evidenceId: string }).evidenceId).toBe('ev-1')
+
+    const records = store.engagementRecords('session-1')
+    // Root host + two open-port services (closed port skipped).
+    expect(records.assets.map(([, a]) => a.value)).toContain('vpn.corp.example')
+    expect(records.assets.map(([, a]) => a.value)).toContain('203.0.113.50:443')
+    expect(records.assets.map(([, a]) => a.value)).toContain('203.0.113.50:1194')
+    expect(records.facts[0]![1].detail).toContain('443/https')
+    expect(records.evidence[0]![1].content).toContain('<nmaprun>')
+  })
+
+  it('imports Nessus ReportItems as CVE-linked findings with dedupe', async () => {
+    const { registry, store } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'nessus import', authorization: 'ROE-22' }, exec)
+    await registry.call('redteam_add_intent', { title: 'auth scan' }, exec)
+    const item = (severity: string) =>
+      `<ReportItem port="443" protocol="tcp" severity="${severity}" pluginID="104743" pluginName="TLS Deprecated Protocol">` +
+      `<description>Supports deprecated TLS 1.0.</description><solution>Disable TLS 1.0.</solution>` +
+      `<plugin_output>TLS 1.0 accepted on 443.</plugin_output><cve>CVE-2021-3450</cve></ReportItem>`
+    const xml = `<?xml?><NessusClientData_v2><Report><ReportHost name="10.0.0.9">` +
+      `<HostProperties><tag name="host-ip">10.0.0.9</tag><tag name="host-fqdn">db.corp.example</tag></HostProperties>` +
+      `${item('4')}${item('4')}</ReportHost></Report></NessusClientData_v2>`
+
+    const result = await registry.call('redteam_import_scan', { format: 'nessus-xml', xml, intentId: 'intent-1' }, exec)
+    expect(result.ok).toBe(true)
+    expect(result.value).toMatchObject({ hosts: 1, findings: 1 })
+
+    const [id, finding] = store.engagementRecords('session-1').findings[0]!
+    expect(finding.title).toBe('TLS Deprecated Protocol')
+    expect(finding.severity).toBe('critical')
+    expect(finding.cveIds).toEqual(['CVE-2021-3450'])
+    expect(finding.affectedAssetId).toBeDefined()
+    expect(finding.remediation).toContain('Disable TLS')
+    void id
+  })
+
+  it('gates collaboration writes behind registered actor roles', async () => {
+    const { registry } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'rbac', authorization: 'ROE-23' }, exec)
+    await registry.call('redteam_add_intent', { title: 'i' }, exec)
+    await registry.call('redteam_add_finding', {
+      intentId: 'intent-1', title: 'f', severity: 'low', description: '', reproducibleSteps: ['s'],
+    }, exec)
+
+    // Unregistered actor is refused.
+    const unregistered = await registry.call(
+      'redteam_flag_finding', { as: 'ghost', findingId: 'finding-1', flag: 'false-positive' }, exec,
+    )
+    expect(unregistered.ok).toBe(false)
+    expect(unregistered.error!.message).toContain('not registered')
+
+    await registry.call('redteam_add_operator', { handle: 'blue-ann', role: 'viewer' }, exec)
+    const viewerWrite = await registry.call(
+      'redteam_flag_finding', { as: 'blue-ann', findingId: 'finding-1', flag: 'false-positive' }, exec,
+    )
+    expect(viewerWrite.ok).toBe(false)
+    expect(viewerWrite.error!.message).toContain("lacks role 'operator'")
+
+    await registry.call('redteam_add_operator', { handle: 'red-bob', role: 'operator' }, exec)
+    const operatorWrite = await registry.call(
+      'redteam_flag_finding', { as: 'red-bob', findingId: 'finding-1', flag: 'under-review' }, exec,
+    )
+    expect(operatorWrite.ok).toBe(true)
+
+    // Commander gate blocks operators from closing the engagement.
+    await registry.call('redteam_add_operator', { handle: 'chief', role: 'commander' }, exec)
+    const closeAsOperator = await registry.call('redteam_close_goal', { as: 'red-bob', outcome: 'partial' }, fakeExec())
+    expect(closeAsOperator.ok).toBe(false)
+
+    // Anonymous writes keep working (single-operator back-compat).
+    const anon = await registry.call(
+      'redteam_retest_finding', { findingId: 'finding-1', outcome: 'still-vulnerable', notes: 'n' }, exec,
+    )
+    expect(anon.ok).toBe(true)
+  })
+
   it('exports SARIF 2.1.0 with levels and security-severity, no defer', async () => {
     const { registry } = await makeRegistry()
     const exec = fakeExec()

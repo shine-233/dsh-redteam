@@ -9,9 +9,9 @@
 
 import type { ProjectionSessionEvent } from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
-import { ATTACK_TECHNIQUE_RE, scoreVector } from './cvss.js'
+import { ATTACK_TECHNIQUE_RE, scoreAnyVector } from './cvss.js'
 import { scopeCheck } from './scope.js'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_FLAGS, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_FLAGS, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS, SLA_POLICY_DAYS } from './types.js'
 import type {
   EdgeRelation,
   EngagementCounts,
@@ -67,6 +67,7 @@ export const redteamProjectionSchema = z.object({
     status: z.enum(['confirmed', 'fixed']).nullable().default(null),
     affectedAssetId: z.union([z.string(), z.null()]).default(null),
     detected: z.enum(['undetected', 'logged', 'alerted', 'prevented']).nullable().default(null),
+    slaDueAt: z.union([z.number(), z.null()]).default(null),
     duplicateOf: z.union([z.string(), z.null()]).default(null),
     flag: z.enum(['under-review', 'false-positive', 'out-of-scope', 'risk-accepted']).nullable().default(null),
   })),
@@ -343,7 +344,7 @@ function applyMutation(state: FoldState, name: string, args: any): void {
         intentId: intent,
         title: String(args?.title ?? ''),
         severity: validateSeverity(args?.severity),
-        cvssScore: typeof args?.cvssVector === 'string' ? scoreVector(args.cvssVector) : null,
+        cvssScore: typeof args?.cvssVector === 'string' ? scoreAnyVector(args.cvssVector) : null,
         techniqueIds: Array.isArray(args?.techniqueIds)
           ? args.techniqueIds.filter((t: unknown) => typeof t === 'string' && ATTACK_TECHNIQUE_RE.test(t))
           : [],
@@ -352,6 +353,7 @@ function applyMutation(state: FoldState, name: string, args: any): void {
           ? args.affectedAssetId
           : null,
         detected: DETECTION_OUTCOMES.includes(args?.detected) ? args.detected : null,
+        slaDueAt: computeSlaDueAt(args, validateSeverity(args?.severity)),
         duplicateOf: typeof args?.duplicateOf === 'string' && args.duplicateOf !== '' ? args.duplicateOf : null,
         flag: FINDING_FLAGS.includes(args?.flag) ? args.flag : null,
       })
@@ -514,6 +516,17 @@ function validateSeverity(value: unknown): 'info' | 'low' | 'medium' | 'high' | 
   return value === 'low' || value === 'medium' || value === 'high' || value === 'critical'
     ? value
     : 'info'
+}
+
+/**
+ * SLA deadline for the view window: explicit slaDays wins, else the severity
+ * policy. Fold-time clock — replays shift the deadline to replay time, which
+ * is cosmetic; the stored record stays authoritative.
+ */
+function computeSlaDueAt(args: any, severity: 'info' | 'low' | 'medium' | 'high' | 'critical'): number | null {
+  const days = typeof args?.slaDays === 'number' ? args.slaDays : SLA_POLICY_DAYS[severity]
+  if (days === null || days === undefined) return null
+  return Date.now() + days * 86_400_000
 }
 
 /** Re-evaluate scope compliance over the whole window (cheap, ≤ few hundred). */
