@@ -1556,6 +1556,7 @@ export class EngagementStore {
             objective: goal.objective,
             authorization: goal.authorization,
             outcome: goal.outcome ?? null,
+            closingSummary: goal.closingSummary ?? null,
           },
       nodes: graph.nodes,
       assets: graph.assets,

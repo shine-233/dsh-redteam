@@ -54,7 +54,9 @@ export function FindingsView({ projection }: { projection: RedteamProjection }):
                 {FLAG_BADGE[finding.flag]!.label}
               </span>
             )}
-            {finding.slaDueAt !== null && finding.status !== 'fixed' && (() => {
+            {finding.slaDueAt !== null && finding.status !== 'fixed'
+              && finding.flag !== 'risk-accepted' && finding.flag !== 'false-positive' && finding.flag !== 'out-of-scope'
+              && (() => {
               const days = Math.ceil((finding.slaDueAt! - Date.now()) / 86_400_000)
               if (days < 0) return <span className="rt-sla rt-sla-over">⏰ 逾期 {Math.abs(days)} 天</span>
               if (days <= 3) return <span className="rt-sla rt-sla-soon">⏰ 剩 {Math.max(0, days)} 天</span>

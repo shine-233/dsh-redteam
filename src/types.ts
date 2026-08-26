@@ -514,6 +514,8 @@ export interface RedteamProjection {
     objective: string
     authorization: string
     outcome: GoalOutcome | null
+    /** Closing summary stamped by redteam_close_goal; null while open. */
+    closingSummary: string | null
   } | null
   readonly nodes: readonly RedteamViewNode[]
   readonly assets: readonly RedteamViewAsset[]

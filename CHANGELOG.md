@@ -1,5 +1,20 @@
 ﻿所有显著变更记录在本文件。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循语义化。
 
+## [1.9.0] — 2026-08-26
+
+### 修复
+- **导入服务资产 tags 漂移**：折叠侧有 [name, product] 而存储侧没有——工具创建时直接带指纹标签，两侧一致
+- **Web 看不到收尾摘要**：closingSummary 入投影（zod/fold/store 三处），目标卡渲染绿边摘要块
+- **FindingsView SLA 徽章与 store 判定不一致**：补齐 risk-accepted/false-positive/out-of-scope 排除
+
+### 新增
+- 目标卡 SLA 逾期告警条（与范围越界告警同款）
+- 链路图事实节点悬停显示详情文本
+- HTML 报告执行摘要补 nextSteps 清单与 SLA 逾期芯片
+
+### 其他
+- package.json 描述更新为「8 种报告格式」
+
 ## [1.8.1] — 2026-08-26
 
 ### 修复

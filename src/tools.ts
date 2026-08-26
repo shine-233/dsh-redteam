@@ -745,10 +745,14 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       const assetIdByValue = new Map(
         store.engagementRecords(sid).assets.map(([id, x]) => [x.value, id] as const),
       )
-      const ensureAsset = async (type: string, value: string, parentId?: string): Promise<string> => {
+      const ensureAsset = async (type: string, value: string, parentId?: string, tags?: string[]): Promise<string> => {
         const existing = assetIdByValue.get(value)
         if (existing !== undefined) return existing
-        const id = await store.addAsset(sid, { type, value, ...(parentId !== undefined ? { parentId } : {}) })
+        const id = await store.addAsset(sid, {
+          type, value,
+          ...(parentId !== undefined ? { parentId } : {}),
+          ...(tags !== undefined && tags.length > 0 ? { tags } : {}),
+        })
         assetIdByValue.set(value, id)
         return id
       }
@@ -757,8 +761,10 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
         for (const host of parsed.hosts) {
           const hostId = await ensureAsset('host', host.hostname ?? host.address)
           for (const svc of host.services) {
-            await ensureAsset('service', `${host.address}:${svc.port}`, hostId)
-            services += 1
+            const svcVal = `${host.address}:${svc.port}`
+            const existed = assetIdByValue.has(svcVal)
+            await ensureAsset('service', svcVal, hostId, [svc.name, ...(svc.product !== null ? [svc.product] : [])])
+            if (!existed) services += 1
             void svc.protocol
           }
           if (host.services.length > 0) {
@@ -1319,7 +1325,9 @@ ${goalHeader}
   <span class="chip">ATT&CK 证实 <b>${st.techniques.proven.length}</b> / 尝试 ${st.techniques.attempted.length}</span>
   <span class="chip">凭据复用 <b>${st.credentialReuse.length}</b> 组</span>
   <span class="chip">范围问题 <b>${st.scope.violations.length}</b></span>
+  <span class="chip">SLA 逾期 <b>${st.slaOverdue.length}</b></span>
 </div>
+${st.nextSteps.length > 0 ? `<ul class="facts">${st.nextSteps.map((s) => `<li>${e(s)}</li>`).join('')}</ul>` : ''}
 ${sevBars}
 <h2>探索链路 / Exploration chain</h2>
 ${intentBlocks || '<p class="none">(none)</p>'}

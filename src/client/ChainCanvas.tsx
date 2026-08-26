@@ -326,6 +326,13 @@ export function ChainCanvas({
             ctx.fillStyle = '#dbe2ea'
             ctx.fillText(truncate(n.label, 30), n.x, n.y + r + 5)
           }
+          if (n.kind === 'fact' && (isSel || isHover)) {
+            ctx.font = '10px system-ui, sans-serif'
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'top'
+            ctx.fillStyle = '#dbe2ea'
+            ctx.fillText(truncate(n.label, 30), n.x, n.y + r + 5)
+          }
         }
       }
       ctx.globalAlpha = 1

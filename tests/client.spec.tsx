@@ -13,7 +13,7 @@ import type { RedteamProjection } from '../src/types.js'
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 const projection: RedteamProjection = {
-  goal: { objective: '拿下核心域控', authorization: '授权书 #2024-001', outcome: null },
+  goal: { objective: '拿下核心域控', authorization: '授权书 #2024-001', outcome: null, closingSummary: null },
   nodes: [
     { id: 'goal-1', kind: 'goal', title: '拿下核心域控', status: null, assetIds: [], phase: null, techniqueIds: [] },
     { id: 'intent-1', kind: 'intent', title: '外网侦察', status: 'done', assetIds: ['asset-1'], phase: 'recon', techniqueIds: ['T1595'] },

@@ -39,6 +39,7 @@ export const redteamProjectionSchema = z.object({
       objective: z.string(),
       authorization: z.string(),
       outcome: z.enum(['achieved', 'partial', 'not-achieved']).nullable().default(null),
+      closingSummary: z.union([z.string(), z.null()]).default(null),
     }),
     z.null(),
   ]),
@@ -269,6 +270,7 @@ function applyMutation(state: FoldState, name: string, args: any): void {
         objective: String(args?.objective ?? ''),
         authorization: String(args?.authorization ?? ''),
         outcome: null,
+        closingSummary: null,
       }
       break
     }
@@ -583,7 +585,11 @@ function applyMutation(state: FoldState, name: string, args: any): void {
     }
     case 'redteam_close_goal': {
       if (state.goal !== null && ['achieved', 'partial', 'not-achieved'].includes(args?.outcome)) {
-        state.goal = { ...state.goal, outcome: args.outcome }
+        state.goal = {
+          ...state.goal,
+          outcome: args.outcome,
+          closingSummary: typeof args?.summary === 'string' && args.summary !== '' ? args.summary.slice(0, 2000) : null,
+        }
       }
       break
     }
