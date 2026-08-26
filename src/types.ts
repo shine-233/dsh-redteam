@@ -438,6 +438,24 @@ export interface RedteamViewObjective {
   readonly provenAt: number | null
 }
 
+/** Fact summary in the projection window — detail truncated, no bodies. */
+export interface RedteamViewFact {
+  readonly id: string
+  readonly intentId: string
+  /** Truncated to 240 chars at fold time. */
+  readonly detail: string
+  readonly phase: Phase | null
+  readonly confidence: number | null
+  readonly evidenceIds: readonly string[]
+}
+
+/** Evidence metadata only — the captured content never enters the projection. */
+export interface RedteamViewEvidenceMeta {
+  readonly id: string
+  readonly kind: EvidenceKind
+  readonly label: string
+}
+
 export interface RedteamProjection {
   readonly goal: {
     objective: string
@@ -457,6 +475,9 @@ export interface RedteamProjection {
   readonly scope: readonly RedteamViewScopeEntry[]
   /** Compliance issues computed over the window at fold time. */
   readonly scopeIssues: readonly RedteamViewScopeIssue[]
+  /** Fact summaries (detail truncated; content-free evidence metadata). */
+  readonly facts: readonly RedteamViewFact[]
+  readonly evidence: readonly RedteamViewEvidenceMeta[]
   readonly edges: readonly GraphEdge[]
   readonly counts: EngagementCounts
 }

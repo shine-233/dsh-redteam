@@ -1308,6 +1308,15 @@ export class EngagementStore {
     }))
     const scopeEntries = (this.rowsForSession('scope_entries', sessionId) as [string, ScopeEntryRecord][])
       .map(([id, s]) => ({ id, kind: s.kind, value: s.value, note: s.note ?? null }))
+    const facts = records.facts.map(([id, f]) => ({
+      id,
+      intentId: f.intentId,
+      detail: f.detail.slice(0, 240),
+      phase: f.phase ?? null,
+      confidence: f.confidence ?? null,
+      evidenceIds: [...f.evidenceIds],
+    }))
+    const evidence = records.evidence.map(([id, ev]) => ({ id, kind: ev.kind, label: ev.label }))
     return {
       goal: goal === undefined
         ? null
@@ -1327,6 +1336,8 @@ export class EngagementStore {
       objectives,
       scope: scopeEntries,
       scopeIssues: this.scopeIssues(sessionId),
+      facts,
+      evidence,
       edges: graph.edges,
       counts: graph.counts,
     }

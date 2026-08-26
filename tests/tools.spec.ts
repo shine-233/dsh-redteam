@@ -220,6 +220,37 @@ describe('redteam tools', () => {
     expect(JSON.stringify(projection)).not.toContain('S3cret')
   })
 
+  it('projects fact summaries and evidence metadata without content bodies', async () => {
+    const { registry, store } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'facts/evidence view', authorization: 'ROE-16' }, exec)
+    await registry.call('redteam_add_intent', { title: 'recon direction' }, exec)
+    const ev = await registry.call(
+      'redteam_add_evidence',
+      { kind: 'command', content: 'SECRET-RESPONSE-BODY do-not-project', label: 'nmap scan' },
+      exec,
+    )
+    expect(ev.value).toEqual({ evidenceId: 'ev-1' })
+    await registry.call(
+      'redteam_add_fact',
+      { intentId: 'intent-1', detail: 'vpn gateway open', phase: 'recon', confidence: 0.9, evidenceIds: ['ev-1'] },
+      exec,
+    )
+
+    const projection = store.projection('session-1')
+    expect(projection.facts[0]).toMatchObject({
+      id: 'fact-1',
+      intentId: 'intent-1',
+      detail: 'vpn gateway open',
+      phase: 'recon',
+      confidence: 0.9,
+      evidenceIds: ['ev-1'],
+    })
+    expect(projection.evidence[0]).toEqual({ id: 'ev-1', kind: 'command', label: 'nmap scan' })
+    // The captured content body never enters the projection.
+    expect(JSON.stringify(projection)).not.toContain('SECRET-RESPONSE-BODY')
+  })
+
   it('exports SARIF 2.1.0 with levels and security-severity, no defer', async () => {
     const { registry } = await makeRegistry()
     const exec = fakeExec()

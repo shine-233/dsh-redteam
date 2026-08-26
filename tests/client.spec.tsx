@@ -58,6 +58,12 @@ const projection: RedteamProjection = {
   scopeIssues: [
     { recordId: 'asset-2', recordKind: 'finding' as const, value: 'portal.corp.example', reason: 'unscoped' as const, matched: '' },
   ],
+  facts: [
+    { id: 'fact-1', intentId: 'intent-1', detail: 'vpn.corp.example 开放 443/1194', phase: 'recon' as const, confidence: 1, evidenceIds: ['ev-1'] },
+  ],
+  evidence: [
+    { id: 'ev-1', kind: 'command' as const, label: 'nmap top-ports' },
+  ],
   edges: [
     { from: 'goal-1', to: 'intent-1', relation: 'spawns' },
     { from: 'goal-1', to: 'intent-2', relation: 'spawns' },
@@ -74,7 +80,7 @@ const projection: RedteamProjection = {
 
 const TAB_IDS = [
   'chain', 'stats', 'view3d', 'findings', 'assets',
-  'credentials', 'artifacts', 'samples', 'iocs', 'objectives', 'report',
+  'credentials', 'artifacts', 'evidence', 'samples', 'iocs', 'objectives', 'report',
 ]
 
 describe('RedteamView client smoke', () => {
@@ -88,7 +94,7 @@ describe('RedteamView client smoke', () => {
     })
     expect(container.textContent).toContain('拿下核心域控')
     expect(container.textContent).toContain('授权书 #2024-001')
-    for (const label of ['链路', '统计', '立体', '漏洞', '资产', '凭据', '产物', '样本', 'IOC', '目标', '报告']) {
+    for (const label of ['链路', '统计', '立体', '漏洞', '资产', '凭据', '产物', '证据', '样本', 'IOC', '目标', '报告']) {
       expect([...container.querySelectorAll('.rt-tab')].some((b) => b.textContent === label), `tab ${label}`).toBe(true)
     }
     root.unmount()

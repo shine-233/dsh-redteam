@@ -12,6 +12,7 @@ import { FindingsView } from './FindingsView.js'
 import { CredentialsView } from './CredentialsView.js'
 import { AssetsView } from './AssetsView.js'
 import { ArtifactsView } from './ArtifactsView.js'
+import { EvidenceView } from './EvidenceView.js'
 import { SamplesView } from './SamplesView.js'
 import { IocsView } from './IocsView.js'
 import { ObjectivesView } from './ObjectivesView.js'
@@ -32,6 +33,7 @@ const TABS = [
   { id: 'assets', label: '资产' },
   { id: 'credentials', label: '凭据' },
   { id: 'artifacts', label: '产物' },
+  { id: 'evidence', label: '证据' },
   { id: 'samples', label: '样本' },
   { id: 'iocs', label: 'IOC' },
   { id: 'objectives', label: '目标' },
@@ -210,6 +212,11 @@ const styles = `
 .rt-cred-status-valid { color:#7fb069; }
 .rt-cred-status-invalid { color:#ff5c5c; }
 .rt-cred-status-unverified { color:var(--dsw-text-secondary,#8b95a1); animation:rtBlink 2.6s infinite; }
+.rt-facts { display:flex; flex-direction:column; gap:6px; }
+.rt-fact { border:1px solid var(--dsw-border,#2a3138); border-radius:8px; padding:7px 10px;
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap; transition:border-color .18s; }
+.rt-fact:hover { border-color:#5b87c788; }
+.rt-fact-detail { flex:1 1 auto; min-width:160px; }
 `
 
 export function RedteamView(props: RedteamViewProps): React.ReactNode {
@@ -280,6 +287,7 @@ export function RedteamView(props: RedteamViewProps): React.ReactNode {
         {tab === 'assets' && <AssetsView projection={projection} />}
         {tab === 'credentials' && <CredentialsView projection={projection} />}
         {tab === 'artifacts' && <ArtifactsView projection={projection} />}
+        {tab === 'evidence' && <EvidenceView projection={projection} />}
         {tab === 'samples' && <SamplesView projection={projection} />}
         {tab === 'iocs' && <IocsView projection={projection} />}
         {tab === 'objectives' && <ObjectivesView projection={projection} />}

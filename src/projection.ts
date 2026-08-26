@@ -11,7 +11,7 @@ import type { ProjectionSessionEvent } from '@deepseek-ai/dsh-session-projection
 import { z } from 'zod'
 import { ATTACK_TECHNIQUE_RE, scoreVector } from './cvss.js'
 import { scopeCheck } from './scope.js'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS } from './types.js'
 import type {
   EdgeRelation,
   EngagementCounts,
@@ -121,6 +121,19 @@ export const redteamProjectionSchema = z.object({
     reason: z.enum(['out-of-scope', 'unscoped']),
     matched: z.string(),
   })).default([]),
+  facts: z.array(z.object({
+    id: z.string(),
+    intentId: z.string(),
+    detail: z.string(),
+    phase: z.enum(['recon', 'enumeration', 'exploitation', 'post-exploitation', 'reporting']).nullable().default(null),
+    confidence: z.union([z.number(), z.null()]).default(null),
+    evidenceIds: z.array(z.string()).default([]),
+  })).default([]),
+  evidence: z.array(z.object({
+    id: z.string(),
+    kind: z.enum(['command', 'output', 'screenshot', 'file', 'url', 'note']),
+    label: z.string(),
+  })).default([]),
   edges: z.array(edgeSchema),
   counts: z.object({
     intents: z.number(),
@@ -151,6 +164,8 @@ export interface FoldState {
   iocs: import('./types.js').RedteamViewIoc[]
   scope: RedteamViewScopeEntry[]
   scopeIssues: RedteamViewScopeIssue[]
+  facts: import('./types.js').RedteamViewFact[]
+  evidence: import('./types.js').RedteamViewEvidenceMeta[]
   edges: GraphEdge[]
   counts: EngagementCounts
   /** callId → full pre-call snapshot, for rollback on failed results. */
@@ -197,6 +212,8 @@ function emptyState(): FoldState {
     objectives: [],
     scope: [],
     scopeIssues: [],
+    facts: [],
+    evidence: [],
     edges: [],
     counts: { intents: 0, facts: 0, assets: 0, findings: 0, evidence: 0, credentials: 0, artifacts: 0, hints: 0, samples: 0, iocs: 0, objectives: 0 },
     pending: {},
@@ -270,7 +287,13 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       break
     }
     case 'redteam_add_evidence': {
-      // Evidence is not rendered as a node; only the count moves.
+      const id = nextId(state, 'ev')
+      state.evidence.push({
+        id,
+        kind: EVIDENCE_KINDS.includes(args?.kind) ? args.kind : 'note',
+        label: String(args?.label ?? ''),
+      })
+      state.evidence = evictOldest([...state.evidence], WINDOW_CAP)
       break
     }
     case 'redteam_add_asset': {
@@ -293,6 +316,17 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       const id = nextId(state, 'fact')
       const intent = typeof args?.intentId === 'string' ? args.intentId : ''
       if (state.nodes.some((n) => n.id === intent)) pushEdge(state.edges, intent, id, 'yields')
+      state.facts.push({
+        id,
+        intentId: intent,
+        detail: String(args?.detail ?? '').slice(0, 240),
+        phase: PHASES.includes(args?.phase) ? (args.phase as (typeof PHASES)[number]) : null,
+        confidence: typeof args?.confidence === 'number' ? args.confidence : null,
+        evidenceIds: Array.isArray(args?.evidenceIds)
+          ? args.evidenceIds.filter((e: unknown) => typeof e === 'string')
+          : [],
+      })
+      state.facts = evictOldest([...state.facts], WINDOW_CAP)
       state.edges = evictOldest([...state.edges], WINDOW_CAP * 2)
       break
     }
@@ -531,6 +565,8 @@ export function fold(state: FoldState, event: ProjectionSessionEvent): FoldState
       objectives: [...state.objectives],
       scope: [...state.scope],
       scopeIssues: [...state.scopeIssues],
+      facts: [...state.facts],
+      evidence: [...state.evidence],
       edges: [...state.edges],
       counts: { ...state.counts },
       pending: { ...state.pending },
@@ -580,6 +616,8 @@ export const redteamProjectionDefinition = {
       objectives: state.objectives,
       scope: state.scope,
       scopeIssues: state.scopeIssues,
+      facts: state.facts,
+      evidence: state.evidence,
       edges: state.edges,
       counts: state.counts,
     }),

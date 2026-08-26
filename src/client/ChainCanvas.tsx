@@ -71,13 +71,17 @@ export function buildGraph(projection: RedteamProjection): { nodes: GraphNode[];
     push({ id: n.id, kind: n.kind === 'goal' ? 'goal' : 'intent', label: n.title, status: n.status })
   }
   for (const e of edges) {
-    if ((e.relation === 'yields')) push({ id: e.to, kind: 'fact', label: e.to, status: null })
+    if ((e.relation === 'yields')) {
+      const f = projection.facts.find((x) => x.id === e.to)
+      push({ id: e.to, kind: 'fact', label: f !== undefined ? f.detail : e.to, status: null })
+    }
     if ((e.relation === 'proves')) {
       const f = projection.findings.find((x) => x.id === e.to)
       push({ id: e.to, kind: 'finding', label: f !== undefined ? `${f.severity.toUpperCase()} ${f.title}` : e.to, status: f?.status ?? null, severity: f?.severity })
     }
     if (e.relation === 'derived_from' && !projection.nodes.some((n) => n.id === e.from)) {
-      push({ id: e.from, kind: 'fact', label: e.from, status: null })
+      const f = projection.facts.find((x) => x.id === e.from)
+      push({ id: e.from, kind: 'fact', label: f !== undefined ? f.detail : e.from, status: null })
     }
     if (e.relation === 'depends_on') {
       if (!seen.has(e.from)) push({ id: e.from, kind: 'intent', label: e.from, status: null })

@@ -70,7 +70,7 @@ dsh plugin --profile web add file:C:\path\to\dsh-redteam-1.2.0.tgz
 - **工具**（`src/tools.ts`）：23 个 —— `redteam_add_goal`（authorization 必填，重开 goal 关闭旧 engagement）/ `redteam_add_intent`（可选 phase）/ `redteam_add_evidence` / `redteam_add_fact`（evidenceIds 引用、可选 phase）/ `redteam_add_asset`（parentId 留空为根资产，tags 指纹）/ `redteam_add_finding`（reproducibleSteps 必填；cvssVector 自动算分；techniqueIds/owaspIds 校验）/ `redteam_add_credential`（凭据登记，脱敏展示）/ `redteam_update_intent`（任务树状态推进）/ `redteam_retest_finding`（复测闭环）/ `redteam_update_credential`(验证凭据) / `redteam_submit`（子 agent 分批直写指定父 intent）/ `redteam_add_scope`（结构化授权边界 in/out）/ `redteam_state`（含 nextSteps 建议与凭据复用、范围合规）/ `redteam_graph` / `redteam_report`（markdown|html|json|sarif|navlayer|stix|taxii|ioc-csv）/ `redteam_engagements`（历史列表）。
 - **CVSS 计算**（`src/cvss.ts`）：FIRST CVSS v3.1 基础分实现（含官方 roundup 防浮点漂移），20 个参考向量测试覆盖。
 - **会话投影**（`src/projection.ts`）：折叠已日志化的 `redteam_*` 调用为 `{ goal, nodes, assets, findings, credentials, counts }`，镜像 store 的引用拒绝；密文永不进入投影。
-- **Web 标签页**（`src/client/`）：按会话注册（当前会话或祖先链含 redteam 预设即显示）；十一个子标签——链路（canvas 力导向图：拖拽/缩放/悬停高亮/点选详情抽屉/方向粒子流）、统计（严重度环形图、任务树与覆盖度动画进度条、ATT&CK 覆盖墙、kill-chain 泳道）、立体（零依赖 3D 攻击地形：轨道旋转/推拉/自动旋转/深度排序）、漏洞、资产、凭据（脱敏列表）、产物、样本、IOC（类型筛选）、目标（crown-jewel 清单）、报告。
+- **Web 标签页**（`src/client/`）：按会话注册（当前会话或祖先链含 redteam 预设即显示）；十二个子标签——链路（canvas 力导向图：拖拽/缩放/悬停高亮/点选详情抽屉——事实节点显示真实详情与证据引用/方向粒子流）、统计（严重度环形图、任务树与覆盖度动画进度条、ATT&CK 覆盖墙、防御触达率、kill-chain 泳道、范围合规）、立体（零依赖 3D 攻击地形：轨道旋转/推拉/自动旋转/深度排序）、漏洞（检测徽章+重复标记）、资产、凭据（脱敏列表）、产物、证据（证据元数据+事实清单，内容不进视图）、样本、IOC（类型筛选）、目标（crown-jewel 清单）、报告。13 张表全部有可视化入口。
 - **协议**（`src/instructions.ts`）：系统提示词段 `redteam:protocol`（order 50），双语逐字撰写而非运行时翻译；要求授权留痕、事实必留证、漏洞必可复现、凭据不落明文。
 
 ## 已知边界
