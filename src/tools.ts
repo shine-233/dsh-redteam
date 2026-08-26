@@ -410,6 +410,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     description:
       'Mark a checklist criterion as achieved (or retract with proven=false). Cite evidenceIds proving it — the report checklist shows proof timestamps.',
     parameters: {
+      as: { type: 'string', description: 'Acting operator handle (must be registered via redteam_add_operator). Omit when acting as the implicit commander.' },
       objectiveId: { type: 'string', required: true },
       proven: { type: 'boolean', description: 'Default true; false retracts.' },
       evidenceIds: { type: 'array', items: { type: 'string' }, description: 'Evidence backing the proof.' },
@@ -419,6 +420,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       render: (_a, v) => [{ type: 'text', text: `objective ${v.objectiveId} → ${v.provenAt !== null ? 'proven' : 'retracted'}` }],
     },
     execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      store.requireActor(sid, a.as, 'commander')
       const updated = await store.proveObjective(sid, a.objectiveId, a)
       return { objectiveId: updated.id, provenAt: updated.provenAt ?? null }
     }, args),
@@ -588,11 +590,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     },
     output: {
       schema: {},
-      render: (_a, v) => [{
-        type: 'text',
-        text: `${v.total} hit(s) for "${v.query}"` + (v.hits.length > 0
-          ? `: ${v.hits.slice(0, 8).map((h) => `${h.kind}/${h.id}`).join(', ')}` : ''),
-      }],
+      render: (_a, v) => [{ type: 'text', text: `${v.total} hit(s) for "${v.query}"\n${JSON.stringify(v.hits, null, 2)}` }],
     },
     execute: (args, exec) => withStore(exec, async (store, sid, a) => await store.search(sid, a.query), args),
   })
@@ -606,7 +604,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       schema: {},
       render: (_a, v) => [{
         type: 'text',
-        text: JSON.stringify({ engagements: v.engagements, findings: v.findings, fixed: v.fixed, severity: v.severity, flags: v.flags }),
+        text: JSON.stringify({ engagements: v.engagements, findings: v.findings, fixed: v.fixed, severity: v.severity, detection: v.detection, flags: v.flags }),
       }],
     },
     execute: (_args, exec) => withStore(exec, async (store) => await store.overview(), {} as Record<string, never>),
@@ -802,7 +800,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     description:
       'Full engagement graph: nodes (goal/intents), assets, derived edges (spawns/yields/proves/parent), counts.',
     parameters: {},
-    output: { schema: {}, render: (_a, v) => [{ type: 'text', text: `${v.nodes.length} nodes, ${v.edges.length} edges` }] },
+    output: { schema: {}, render: (_a, v) => [{ type: 'text', text: JSON.stringify(v, null, 2) }] },
     execute: (_args, exec) => withStore(exec, async (store, sid) => await store.graph(sid), {} as Record<string, never>),
   })
 
@@ -819,7 +817,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     },
     output: {
       schema: {},
-      render: (_a, v) => [{ type: 'text', text: `report rendered (${v.format}), ${v.body.length} chars — deliver via conversation or save to a file` }],
+      render: (_a, v) => [{ type: 'text', text: `[${v.format}] ${v.body.length} chars\n\n${v.body}` }],
     },
     execute: (args, exec) => withStore(exec, async (store, sid, a) => {
       const format = a.format ?? 'markdown'
@@ -848,7 +846,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     description:
       'List every engagement ever recorded on this deployment (all sessions), newest first, with per-engagement counts.',
     parameters: {},
-    output: { schema: {}, render: (_a, v) => [{ type: 'text', text: `${v.length} engagements listed (newest first)` }] },
+    output: { schema: {}, render: (_a, v) => [{ type: 'text', text: JSON.stringify(v, null, 2) }] },
     execute: (_args, exec) => withStore(exec, async (store) => await store.listEngagements() as unknown as { length: number }, {} as Record<string, never>),
   })
 
@@ -1408,7 +1406,7 @@ async function markdownReport(
   lines.push('')
   lines.push(`| intents | facts | assets | findings | evidence | credentials | artifacts | hints | samples | iocs |`)
   lines.push(`|---|---|---|---|---|---|---|---|---|---|`)
-  lines.push(`| ${c.intents} | ${c.facts} | ${c.assets} | ${c.findings} | ${c.evidence} | ${c.credentials} | ${c.artifacts} | ${c.hints} |`)
+  lines.push(`| ${c.intents} | ${c.facts} | ${c.assets} | ${c.findings} | ${c.evidence} | ${c.credentials} | ${c.artifacts} | ${c.hints} | ${c.samples} | ${c.iocs} |`)
   lines.push('')
 
   const bySeverity = new Map<string, number>()

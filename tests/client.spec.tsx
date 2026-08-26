@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  * Client smoke: RedteamView mounts against a rich projection and every one
- * of the eleven sub-tabs renders without throwing (canvas contexts degrade
+ * of the twelve sub-tabs renders without throwing (canvas contexts degrade
  * to no-ops under jsdom).
  */
 import { describe, expect, it } from 'vitest'
@@ -84,7 +84,7 @@ const TAB_IDS = [
 ]
 
 describe('RedteamView client smoke', () => {
-  it('renders header, counts, and all eleven sub-tabs without throwing', () => {
+  it('renders header, counts, and all twelve sub-tabs without throwing', () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root: Root = createRoot(container)

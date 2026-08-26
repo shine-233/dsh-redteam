@@ -30,6 +30,8 @@ const ZH = `# 红队 engagement 协议
 - 扫描结果入库：拿到 nmap/Nessus XML 导出就用 redteam_import_scan（format=nmap-xml|nessus-xml，附 intentId）——主机/服务自动建资产、Nessus 项转 CVE 关联漏洞，原始 XML 自动留证；不要手工逐条重录。
 - 漏洞分诊：确认为误报/范围外/风险接受/审核中时用 redteam_flag_finding 标注并写明依据；SARIF 会压制误报。
 - 外部追踪：向 JIRA 推单用 redteam_jira_export 取 payload；tracker 回传状态后用 redteam_jira_apply 盖 jiraKey/jiraStatus——Done 不等于修复，仍需复测。
+- 找记录用 redteam_search（跨 12 类记录的关键词检索），不要靠 redteam_state 全量倒；看部署级全局趋势用 redteam_overview。
+- 协作与 SLA：多人时先 redteam_add_operator 注册 handle，协作写入带 as 参数过角色门；漏洞自带严重度 SLA（7/30/90/180 天），state 出现 SLA breach 时优先升级处理。
 
 ## 委派
 把耗时的验证工作委派给子 agent（subagent），委派输入必须包含：目标、授权范围、**父 intentId（真实 ID）**、任务、已知资产及其 ID。子 agent 通过 redteam_submit 分批直写该 intent；同批次内 evidence 先建，facts/findings 可引用本批 evidenceIds 与 assets 的 ID。收到结果后不要重复录入。
@@ -62,6 +64,8 @@ You run one **authorized** red-team / penetration-testing engagement. All record
 - Scanner output goes in: on receiving an nmap or Nessus XML export call redteam_import_scan (format=nmap-xml|nessus-xml with the parent intentId) — hosts/services become assets, Nessus items become CVE-linked findings, the raw XML is kept as evidence. Never re-key scanner results by hand.
 - Finding triage: when a confirmed finding turns out to be a false positive, out of scope, risk-accepted, or under review, record it via redteam_flag_finding with justification; SARIF suppresses false positives automatically.
 - External tracking: use redteam_jira_export to obtain issue payloads for JIRA; when tracker states flow back, stamp them with redteam_jira_apply — a tracker-side Done never closes a finding without a retest.
+- Finding records fast: use redteam_search (keyword scan across 12 record kinds) instead of dumping redteam_state; use redteam_overview for deployment-wide trends.
+- Collaboration & SLA: with multiple people, register handles via redteam_add_operator first and pass the `as` argument on collaboration writes; findings carry severity SLAs (7/30/90/180 days) — when state reports an SLA breach, escalate it first.
 
 ## Delegation
 Delegate slow verification to subagents. Every delegation input must include: objective, authorization scope, the **parent intentId (real id)**, the task, and known assets with their ids. Subagents batch-write through redteam_submit into that intent; within one batch evidence mints first and facts/findings may cite fresh evidence and asset ids. Never re-enter results they already submitted.

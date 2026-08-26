@@ -298,6 +298,9 @@ describe('redteam tools', () => {
     const res = await registry.call('redteam_search', { query: 'portal' }, exec)
     expect(res.ok).toBe(true)
     const { total, hits } = res.value as { total: number; hits: { kind: string; id: string; snippet: string }[] }
+    // Snippets must survive into the tool render (the model reads those, not the raw value).
+    const rendered = JSON.stringify(res)
+    expect(hits.every((h) => typeof h.snippet === 'string' && h.snippet.length > 0)).toBe(true)
     const kinds = hits.map((h) => h.kind)
     expect(kinds).toContain('intent')
     expect(kinds).toContain('asset')
@@ -341,6 +344,15 @@ describe('redteam tools', () => {
 
     const tool = await registry.call('redteam_overview', {}, exec)
     expect(tool.ok).toBe(true)
+
+    // Markdown overview table rows must align with their header column count.
+    const md2 = await registry.call('redteam_report', {}, exec)
+    const body = (md2.value as { body: string }).body
+    const headerLine = body.split('\n').find((l) => l.startsWith('| intents |'))
+    const dataLine = body.split('\n').find((l) => l.includes(`| ${store.counts('session-1').intents} |`))
+    expect(headerLine).toBeDefined()
+    expect(dataLine).toBeDefined()
+    expect((dataLine!.match(/\|/g) ?? []).length).toBe((headerLine!.match(/\|/g) ?? []).length)
   })
 
   it('stamps SLA deadlines from the severity policy with override', async () => {

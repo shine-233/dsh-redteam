@@ -1,6 +1,17 @@
-# Changelog
+﻿# Changelog
 
 所有显著变更记录在本文件。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循语义化。
+
+## [1.8.0] — 2026-08-26
+
+### 修复（第二轮打假：模型可见性审计）
+- **报告正文从未到达模型**：`redteam_report` 的 render 只回 "N chars" 摘要——8 种格式全部是"生成了但没人看得到"；现 render 携带完整 body
+- **graph / engagements 同病**：render 只给计数不给内容；现全量 JSON 输出
+- **search 截断丢内容**：render 只回前 8 个 kind/id，snippet 全丢；现全量输出
+- **overview 漏 detection**：render 字段补齐
+- **markdown 概览表错位**：表头 10 列、数据行 9 值（samples/iocs 两列恒空）；回归测试断言行列对齐
+- **proveObjective 假门禁**：有 as 泛型无 schema 声明无角色门；补齐（commander 级）
+- 协议提示词补 search/overview/operator/SLA 用法
 
 ## [1.7.1] — 2026-08-26
 
