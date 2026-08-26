@@ -2,8 +2,8 @@
 #
 # Composition adapted from the shipped `standard` preset of DeepSeek Harness
 # (MIT, apps/cli/config/agent-presets/standard) with two changes:
-# 1. a commander persona and the `dsh-redteam/redteam` plugin row 鈥?the
-#    鎻愭鈫掑喅绛栤啋鎵ц protocol arrives from the `redteam:protocol` system-prompt
+# 1. a commander persona and the `dsh-redteam/redteam` plugin row 闁?the
+#    闁圭粯鍔栭、宥夊焼閹烘垵鏋€缂佹稒鐗戦崯瀣箥瑜戦、?protocol arrives from the `redteam:protocol` system-prompt
 #    section contributed by that plugin;
 # 2. execution-only delegation personas: children may batch-submit confirmed
 #    results to their assigned intent via `redteam_submit`, nothing else.
@@ -14,7 +14,7 @@
 # registers tools on the host `tools` registry, a prompt section, and a
 # session-projection unit), so its row sits loose like tool rows.
 
-# 鈹€鈹€ identity 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# 闁冲厜鍋撻柍鍏夊亾 identity 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾
 
 - id: persona
   name: '@deepseek-ai/dsh-persona'
@@ -33,8 +33,7 @@
   config:
     maxBytes: 65536
 
-# 鈹€鈹€ shell 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-
+# 闁冲厜鍋撻柍鍏夊亾 shell 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
   disabled: !!js process.platform === 'win32'
@@ -43,7 +42,7 @@
   name: '@deepseek-ai/dsh-tool-pwsh'
   disabled: !!js process.platform !== 'win32'
 
-# 鈹€鈹€ filesystem 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# 闁冲厜鍋撻柍鍏夊亾 filesystem 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾
 
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
@@ -53,12 +52,12 @@
   config:
     sampleOverCapGlobResults: false
 
-# 鈹€鈹€ background jobs 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# 闁冲厜鍋撻柍鍏夊亾 background jobs 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾
 
 - id: tool-jobs
   name: '@deepseek-ai/dsh-tool-jobs'
 
-# 鈹€鈹€ skills 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# 闁冲厜鍋撻柍鍏夊亾 skills 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾
 
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
@@ -66,12 +65,11 @@
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
 
-# 鈹€鈹€ goals 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-
+# 闁冲厜鍋撻柍鍏夊亾 goals 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?
 - id: tool-goal
   name: '@deepseek-ai/dsh-tool-goal'
 
-# 鈹€鈹€ compaction 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# 闁冲厜鍋撻柍鍏夊亾 compaction 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾
 
 - id: compaction
   name: cordis:group
@@ -93,7 +91,7 @@
         headChars: 4096
         tailChars: 1024
 
-# 鈹€鈹€ delegation and workflows 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# 闁冲厜鍋撻柍鍏夊亾 delegation and workflows 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾
 
 - id: delegation
   name: cordis:group
@@ -120,19 +118,17 @@
         backgroundMode: continuable
         maxDepth: 1
         persona: |-
-          浣犳槸绾㈤槦鎵ц瀛?agent锛屼笉鏄寚鎸ュ畼銆備粎鎵ц濮旀淳浠诲姟锛涗笉瑕佸垱寤?goal銆乮ntent銆佹姤鍛婏紝
-          涓嶈鏇存柊鎰忓浘鐘舵€併€佺櫥璁版垨楠岃瘉鍑嵁銆佸叧闂?engagement锛屼篃涓嶈缁х画濮旀淳銆?          淇濈暀骞堕伒瀹堝娲句腑鐨勭洰鏍囥€佹巿鏉冭寖鍥翠笌瀹夊叏绾︽潫锛涘彧鑳藉湪鎺堟潈鑼冨洿鍐呮搷浣溿€?
-          濮旀淳杈撳叆蹇呴』鍖呭惈锛氱洰鏍囥€佹巿鏉冭寖鍥淬€佺埗 intentId锛坮edteam_add_intent 鍒氳繑鍥炵殑鐪熷疄 ID锛夈€佸緟楠岃瘉浠诲姟銆?          宸茬煡璧勪骇鍙婂彲寮曠敤鐨勮祫浜?ID銆傝嫢濮旀淳鏈彁渚涚湡瀹炵埗 intentId锛屼笉寰楄皟鐢?redteam_submit锛?          搴旂畝瑕佸憡鐭ョ埗 agent 琛ュ厖銆俤elegation-intent-id銆?intentId> 绛夊崰浣嶇涓€寰嬫棤鏁堛€?
-          涓嶈噯閫犺瘉鎹€佽祫浜с€佹紡娲炴垨澶嶇幇姝ラ銆傛瘡寰楀埌涓€缁勭嫭绔嬨€佸凡纭鐨勭粨鏋滃氨绔嬪嵆璋冪敤 redteam_submit 鍒嗘壒鎻愪氦锛?          缁濅笉閲嶅鎻愪氦鍚屼竴鏉★細
-          {"intentId":"鈥?,"evidence":[{"kind":"command|output|screenshot|file|url|note","content":"鈥?,"label":"鈥?}],
-           "assets":[{"type":"鈥?,"value":"鈥?,"parentId":"asset-1"}],
-           "credentials":[{"kind":"password|hash|api-key|token|ssh-key|other","secret":"鈥?,"username":"鈥?,"assetId":"asset-1"}],
+          濞达絿濮靛Σ鍝ョ棯閵忋倖袝闁圭瑳鍡╂斀閻?agent闁挎稑濂旂粭澶愬及椤栨稑鐦归柟鎼炲劚閻ｅジ濡撮崒娆戠煂闁圭瑳鍡╂斀濠殿喗姊瑰ǎ铏鐠囨彃顫ら柨娑欑◥缁楀鎲版担绋跨仭鐎?goal闁靛棔宸﹏tent闁靛棔鐒︽慨銈夊川婵犲繒绀?          濞戞挸绉烽々锕傚即鐎涙ɑ鐓€闁规澘绻愬ù姗€鎮╅懜纰樺亾娴ｇ鍋撴担鐑橆仮閻犱胶澧楅崹銊︻殽瀹€鍐闁告埈鍘藉畵渚€濡存担绋垮綘闂?engagement闁挎稑濂旂弧鍐╃▔瀹ュ牜娲ｇ紓浣堝懐鏁惧┑顔芥⒐濞ｆ娊濡?          濞ｅ洦绻勯弳鈧鐐茬埣娴兼帞鈧懓鐗嗛～娆徝洪崣銉ㄥ幀闁汇劌瀚ú浼村冀閸ャ儮鍋撴担鐟版埧闁哄鍟崇€垫牠宕剁紙鐘电憿閻庣懓顦崣蹇曠棯閿旇姤灏嗛柨娑欑☉瑜把囨嚄閽樺韬柟鍝勭墛濞煎牓鎳犻崘銊︾函闁告劕鎳忛幖閿嬫媴濠у簱鍋?
+          濠殿喗姊瑰ǎ铏綇閹惧啿寮抽煫鍥ф嚇閵嗗繘宕犻崨顓熷創闁挎稒姘ㄥú浼村冀閸ャ儮鍋撴担鐟版埧闁哄鍟崇€垫牠宕跺ǎ顑藉亾娴ｅ搫鐓?intentId闁挎稑婢乪dteam_add_intent 闁告帗淇虹换鎴﹀炊閻愬灚鐣遍柣顏嗗枎閻?ID闁挎稑顦埀顑跨缁剁喐顨ュ畝鍐濞寸姾顕ф慨鐔煎Υ?          鐎规瓕灏欓悡锛勬導閸曨亪鐛撻柛娆忥工瑜版彃顕ｉ弴鐘虫殢闁汇劌瀚粊顐ｇ?ID闁靛棗鍊界€氥垺鎱ㄩ弮鈧ǎ鎶藉嫉椤忓懎绲瑰〒姘〒濠€锛勨偓鍦仧閸?intentId闁挎稑濂旂粭澶婎嚗濡ゅ嫮娈堕柣?redteam_submit闁?          閹煎瓨姊婚悾婵堟啺娴ｅ憡鍟為柣顓滃劤閸?agent 閻炴稏鍎遍崢鏍Υ娣囶構legation-intent-id闁?intentId> 缂佹稑顦畷鐗堟媴瀹ュ浂鍎婂☉鎾亾鐎垫澘顑嗗Λ銈夊极閸稈鍋?
+          濞戞挸绉烽崳顖炴焻閻樿櫣妲堥柟璇″枔閳ь兛娴囩粊顐ｇ瑜嬮埀顑跨劍缁扁€趁洪悙鏉戠仐濠㈣泛绉堕獮鍥ь潰閵夆晩鈧啴濡撮崒娑氭Ж鐎电増顨呴崺灞剧▔閳ь剛绱掗崟顓烆仾缂佹柨顑冮埀顑跨閸戯紕娑甸娆惧悋闁汇劌瀚划銊╁几濠婂啯鐨戠紒鏂款儏瀹撳棛鎷崘顏呮殢 redteam_submit 闁告帒妫欐竟鎺楀箵閹邦亝鍞夐柨?          缂備焦绻€缁楀鏌屽鍜佹Щ闁圭粯鍔掑锕傚触鐏炶偐顏遍柡澶嗘缁?          {"intentId":"闁?,"evidence":[{"kind":"command|output|screenshot|file|url|note","content":"闁?,"label":"闁?}],
+           "assets":[{"type":"闁?,"value":"闁?,"parentId":"asset-1"}],
+           "credentials":[{"kind":"password|hash|api-key|token|ssh-key|other","secret":"闁?,"username":"闁?,"assetId":"asset-1"}],
            "artifacts":[{"kind":"file|screenshot|log|report|exploit|dump|other","location":"...","assetId":"asset-1"}],
            "facts":[{...,"evidenceIds":["ev-1"]}],
-           "findings":[{"title":"鈥?,"severity":"low|medium|high|critical","description":"鈥?,
-                        "reproducibleSteps":["鈥?],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
-          鍚屼竴鎵规鍐咃細evidence 鍏堝缓锛岄殢鍚?assets/credentials锛沠acts/findings 鍙紩鐢ㄦ湰鎵?evidenceIds锛?          findings 鍙紩鐢ㄦ湰鎵?assets 鐨?ID銆?
-          鎻愪氦鎴愬姛鍚庯紝鏈€缁堝洖澶嶅彧鍐欑粨璁恒€佽瘉鎹憳瑕佷笌鎻愪氦璁℃暟锛涗笉瑕佺矘璐村懡浠ゅ師鏂囥€佸搷搴旀鏂囨垨瀹屾暣 JSON銆?        toolFilter:
+           "findings":[{"title":"闁?,"severity":"low|medium|high|critical","description":"闁?,
+                        "reproducibleSteps":["闁?],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
+          闁告艾濂旂粩鎾箥鐟欏嫷鍋ч柛鎰嫅缁辩櫝vidence 闁稿繐鐗嗙紓鎾绘晬瀹€鍕吂闁?assets/credentials闁挎稒鐭cts/findings 闁告瑯鍨扮槐鈺呮偨閵婏附鎷遍柟?evidenceIds闁?          findings 闁告瑯鍨扮槐鈺呮偨閵婏附鎷遍柟?assets 闁?ID闁?
+          闁圭粯鍔掑锕傚箣閹邦剙顫犻柛姘嚱缁辨繈寮甸埀顒傜磼閸繃绀€濠㈣泛绉磋ぐ褔宕樺▎鎴犳尝閻犱焦浜介埀顑挎祰閻﹀骞戦鑺ュ枀閻熸洑妞掔粭宀勫箵閹邦亝鍞夐悹浣插墲閺嗙喖鏁嶅☉妤冪憹閻熸洑鑳堕惌妯兼嫻閺夋垶鍤掑ù鐘€曠敮顐﹀棘閸ャ儮鍋撴担鍛婃儥閹煎瓨姊归婊堝棘閸ャ劌鐏楅悗鐟版湰閺?JSON闁?        toolFilter:
           deny:
             - redteam_add_goal
             - redteam_add_intent
@@ -150,6 +146,7 @@
             - redteam_prove_objective
             - redteam_update_intent
             - redteam_retest_finding
+            - redteam_flag_finding
             - redteam_update_credential
             - redteam_close_goal
             - redteam_state
@@ -167,19 +164,17 @@
         backgroundMode: continuable
         maxDepth: 1
         persona: |-
-          浣犳槸绾㈤槦鎵ц瀛?agent锛屼笉鏄寚鎸ュ畼銆備粎鎵ц濮旀淳浠诲姟锛涗笉瑕佸垱寤?goal銆乮ntent銆佹姤鍛婏紝
-          涓嶈鏇存柊鎰忓浘鐘舵€併€佺櫥璁版垨楠岃瘉鍑嵁銆佸叧闂?engagement锛屼篃涓嶈缁х画濮旀淳銆?          淇濈暀骞堕伒瀹堝娲句腑鐨勭洰鏍囥€佹巿鏉冭寖鍥翠笌瀹夊叏绾︽潫锛涘彧鑳藉湪鎺堟潈鑼冨洿鍐呮搷浣溿€?
-          濮旀淳杈撳叆蹇呴』鍖呭惈锛氱洰鏍囥€佹巿鏉冭寖鍥淬€佺埗 intentId锛坮edteam_add_intent 鍒氳繑鍥炵殑鐪熷疄 ID锛夈€佸緟楠岃瘉浠诲姟銆?          宸茬煡璧勪骇鍙婂彲寮曠敤鐨勮祫浜?ID銆傝嫢濮旀淳鏈彁渚涚湡瀹炵埗 intentId锛屼笉寰楄皟鐢?redteam_submit锛?          搴旂畝瑕佸憡鐭ョ埗 agent 琛ュ厖銆俤elegation-intent-id銆?intentId> 绛夊崰浣嶇涓€寰嬫棤鏁堛€?
-          涓嶈噯閫犺瘉鎹€佽祫浜с€佹紡娲炴垨澶嶇幇姝ラ銆傛瘡寰楀埌涓€缁勭嫭绔嬨€佸凡纭鐨勭粨鏋滃氨绔嬪嵆璋冪敤 redteam_submit 鍒嗘壒鎻愪氦锛?          缁濅笉閲嶅鎻愪氦鍚屼竴鏉★細
-          {"intentId":"鈥?,"evidence":[{"kind":"command|output|screenshot|file|url|note","content":"鈥?,"label":"鈥?}],
-           "assets":[{"type":"鈥?,"value":"鈥?,"parentId":"asset-1"}],
-           "credentials":[{"kind":"password|hash|api-key|token|ssh-key|other","secret":"鈥?,"username":"鈥?,"assetId":"asset-1"}],
+          濞达絿濮靛Σ鍝ョ棯閵忋倖袝闁圭瑳鍡╂斀閻?agent闁挎稑濂旂粭澶愬及椤栨稑鐦归柟鎼炲劚閻ｅジ濡撮崒娆戠煂闁圭瑳鍡╂斀濠殿喗姊瑰ǎ铏鐠囨彃顫ら柨娑欑◥缁楀鎲版担绋跨仭鐎?goal闁靛棔宸﹏tent闁靛棔鐒︽慨銈夊川婵犲繒绀?          濞戞挸绉烽々锕傚即鐎涙ɑ鐓€闁规澘绻愬ù姗€鎮╅懜纰樺亾娴ｇ鍋撴担鐑橆仮閻犱胶澧楅崹銊︻殽瀹€鍐闁告埈鍘藉畵渚€濡存担绋垮綘闂?engagement闁挎稑濂旂弧鍐╃▔瀹ュ牜娲ｇ紓浣堝懐鏁惧┑顔芥⒐濞ｆ娊濡?          濞ｅ洦绻勯弳鈧鐐茬埣娴兼帞鈧懓鐗嗛～娆徝洪崣銉ㄥ幀闁汇劌瀚ú浼村冀閸ャ儮鍋撴担鐟版埧闁哄鍟崇€垫牠宕剁紙鐘电憿閻庣懓顦崣蹇曠棯閿旇姤灏嗛柨娑欑☉瑜把囨嚄閽樺韬柟鍝勭墛濞煎牓鎳犻崘銊︾函闁告劕鎳忛幖閿嬫媴濠у簱鍋?
+          濠殿喗姊瑰ǎ铏綇閹惧啿寮抽煫鍥ф嚇閵嗗繘宕犻崨顓熷創闁挎稒姘ㄥú浼村冀閸ャ儮鍋撴担鐟版埧闁哄鍟崇€垫牠宕跺ǎ顑藉亾娴ｅ搫鐓?intentId闁挎稑婢乪dteam_add_intent 闁告帗淇虹换鎴﹀炊閻愬灚鐣遍柣顏嗗枎閻?ID闁挎稑顦埀顑跨缁剁喐顨ュ畝鍐濞寸姾顕ф慨鐔煎Υ?          鐎规瓕灏欓悡锛勬導閸曨亪鐛撻柛娆忥工瑜版彃顕ｉ弴鐘虫殢闁汇劌瀚粊顐ｇ?ID闁靛棗鍊界€氥垺鎱ㄩ弮鈧ǎ鎶藉嫉椤忓懎绲瑰〒姘〒濠€锛勨偓鍦仧閸?intentId闁挎稑濂旂粭澶婎嚗濡ゅ嫮娈堕柣?redteam_submit闁?          閹煎瓨姊婚悾婵堟啺娴ｅ憡鍟為柣顓滃劤閸?agent 閻炴稏鍎遍崢鏍Υ娣囶構legation-intent-id闁?intentId> 缂佹稑顦畷鐗堟媴瀹ュ浂鍎婂☉鎾亾鐎垫澘顑嗗Λ銈夊极閸稈鍋?
+          濞戞挸绉烽崳顖炴焻閻樿櫣妲堥柟璇″枔閳ь兛娴囩粊顐ｇ瑜嬮埀顑跨劍缁扁€趁洪悙鏉戠仐濠㈣泛绉堕獮鍥ь潰閵夆晩鈧啴濡撮崒娑氭Ж鐎电増顨呴崺灞剧▔閳ь剛绱掗崟顓烆仾缂佹柨顑冮埀顑跨閸戯紕娑甸娆惧悋闁汇劌瀚划銊╁几濠婂啯鐨戠紒鏂款儏瀹撳棛鎷崘顏呮殢 redteam_submit 闁告帒妫欐竟鎺楀箵閹邦亝鍞夐柨?          缂備焦绻€缁楀鏌屽鍜佹Щ闁圭粯鍔掑锕傚触鐏炶偐顏遍柡澶嗘缁?          {"intentId":"闁?,"evidence":[{"kind":"command|output|screenshot|file|url|note","content":"闁?,"label":"闁?}],
+           "assets":[{"type":"闁?,"value":"闁?,"parentId":"asset-1"}],
+           "credentials":[{"kind":"password|hash|api-key|token|ssh-key|other","secret":"闁?,"username":"闁?,"assetId":"asset-1"}],
            "artifacts":[{"kind":"file|screenshot|log|report|exploit|dump|other","location":"...","assetId":"asset-1"}],
            "facts":[{...,"evidenceIds":["ev-1"]}],
-           "findings":[{"title":"鈥?,"severity":"low|medium|high|critical","description":"鈥?,
-                        "reproducibleSteps":["鈥?],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
-          鍚屼竴鎵规鍐咃細evidence 鍏堝缓锛岄殢鍚?assets/credentials锛沠acts/findings 鍙紩鐢ㄦ湰鎵?evidenceIds锛?          findings 鍙紩鐢ㄦ湰鎵?assets 鐨?ID銆?
-          鎻愪氦鎴愬姛鍚庯紝鏈€缁堝洖澶嶅彧鍐欑粨璁恒€佽瘉鎹憳瑕佷笌鎻愪氦璁℃暟锛涗笉瑕佺矘璐村懡浠ゅ師鏂囥€佸搷搴旀鏂囨垨瀹屾暣 JSON銆?        toolFilter:
+           "findings":[{"title":"闁?,"severity":"low|medium|high|critical","description":"闁?,
+                        "reproducibleSteps":["闁?],"affectedAssetId":"asset-1","evidenceIds":["ev-2"]}]}
+          闁告艾濂旂粩鎾箥鐟欏嫷鍋ч柛鎰嫅缁辩櫝vidence 闁稿繐鐗嗙紓鎾绘晬瀹€鍕吂闁?assets/credentials闁挎稒鐭cts/findings 闁告瑯鍨扮槐鈺呮偨閵婏附鎷遍柟?evidenceIds闁?          findings 闁告瑯鍨扮槐鈺呮偨閵婏附鎷遍柟?assets 闁?ID闁?
+          闁圭粯鍔掑锕傚箣閹邦剙顫犻柛姘嚱缁辨繈寮甸埀顒傜磼閸繃绀€濠㈣泛绉磋ぐ褔宕樺▎鎴犳尝閻犱焦浜介埀顑挎祰閻﹀骞戦鑺ュ枀閻熸洑妞掔粭宀勫箵閹邦亝鍞夐悹浣插墲閺嗙喖鏁嶅☉妤冪憹閻熸洑鑳堕惌妯兼嫻閺夋垶鍤掑ù鐘€曠敮顐﹀棘閸ャ儮鍋撴担鍛婃儥閹煎瓨姊归婊堝棘閸ャ劌鐏楅悗鐟版湰閺?JSON闁?        toolFilter:
           deny:
             - redteam_add_goal
             - redteam_add_intent
@@ -197,6 +192,7 @@
             - redteam_prove_objective
             - redteam_update_intent
             - redteam_retest_finding
+            - redteam_flag_finding
             - redteam_update_credential
             - redteam_close_goal
             - redteam_state
@@ -238,8 +234,7 @@
         subagentProvider: spawn
         maxRounds: 64
 
-# 鈹€鈹€ remaining model-facing rows 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-
+# 闁冲厜鍋撻柍鍏夊亾 remaining model-facing rows 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?
 - id: tool-ask-user
   name: '@deepseek-ai/dsh-tool-ask-user'
 
@@ -254,9 +249,8 @@
     fetch: false
     searchTimeoutMs: 60000
 
-# 鈹€鈹€ red-team mode 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-
-# The single redteam plugin: twenty-three model-facing redteam_* tools on the
+# 闁冲厜鍋撻柍鍏夊亾 red-team mode 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?
+# The single redteam plugin: twenty-five model-facing redteam_* tools on the
 # host tools registry, the redteam:protocol system-prompt section, and the
 # standing session-projection unit for the Web tab. Publishes no service;
 # consumes the host storageDomain facility; needs no realm.

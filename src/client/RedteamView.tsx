@@ -195,6 +195,11 @@ const styles = `
 .rt-det-logged { color:#6aa2ff; }
 .rt-det-alerted { color:#e0c04e; }
 .rt-det-prevented { color:#ff5c5c; }
+.rt-flagged { margin-left:8px; font-size:11px; font-weight:700; padding:1px 7px; border-radius:10px; }
+.rt-flag-under-review { background:rgba(106,162,255,.14); color:#6aa2ff; }
+.rt-flag-false-positive { background:rgba(139,149,161,.16); color:#8b95a1; text-decoration:line-through; }
+.rt-flag-out-of-scope { background:rgba(255,92,92,.12); color:#ff5c5c; }
+.rt-flag-risk-accepted { background:rgba(224,192,78,.14); color:#e0c04e; }
 .rt-tags { display:flex; gap:4px; flex-wrap:wrap; }
 .rt-kind-chips { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; align-items:center; }
 .rt-chip-active { background:var(--dsw-accent-soft, rgba(80,140,255,.16)) !important; color:var(--dsw-accent,#6aa2ff) !important; }

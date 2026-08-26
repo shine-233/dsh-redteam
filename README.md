@@ -54,6 +54,9 @@ dsh plugin --profile web add file:C:\path\to\dsh-redteam-1.2.0.tgz
 | IOC 追踪 | MISP/Cuckoo 提取工作流 | `redteam_add_ioc` 按 ip/domain/url/hash/mutex/registry/filepath/user-agent 分类记录指标，可挂样本与意图，报告输出 IOC 附录表 |
 | 目标核对单 | CTFd flag 模型 / Cairn prove_goal | `redteam_add_objective` + `redteam_prove_objective`：逐项成功标准（拿域管/读 PII 表）独立证明或撤回，报告核对单带证明时间戳 |
 | CVE 引用 | NVD/DefectDojo 惯例 | finding 可挂 `cveIds`（CVE-2024-12345 格式校验），SARIF tags 携带 |
+| 分诊状态 | DefectDojo triage 工作流 | `redteam_flag_finding`：under-review / false-positive / out-of-scope / risk-accepted（说明+证据留痕，`none` 清除）；标记不删记录——报告徽章标注，**SARIF 对误报输出 suppressions** |
+| 跨表搜索 | DefectDojo Watson 检索 | `redteam_search` 一条关键词扫 12 类记录返回分组片段；原始密文不可检索 |
+| 全局度量面板 | DefectDojo metrics dashboard | `redteam_overview` 跨全部 engagement 聚合表计数、严重度分布、检测反馈、分诊状态与修复数 |
 | ATT&CK Navigator 导出 | mitre-attack/attack-navigator | `redteam_report format=navlayer` 输出 layer v4.5：证实技术 100 分（绿）/ 仅尝试 50 分（琥珀），注释携带意图与漏洞出处，Navigator 直接打开 |
 | STIX 2.1 导出 | MISP / oasis-open STIX 工作流 | `redteam_report format=stix` 输出 bundle：漏洞→vulnerability（severity 标签 + CVE 外部引用），IOC→indicator（ip/domain/url/hash/email/mutex/registry 标准 pattern） |
 | 凭据复用分析 | BloodHound/Faraday 曝面分析 | 同一口令材料跨目标/资产出现时，`redteam_state` 与报告输出复用分组（脱敏掩码，明文不出库），提示横向尝试 |
@@ -67,7 +70,7 @@ dsh plugin --profile web add file:C:\path\to\dsh-redteam-1.2.0.tgz
 
 - **领域模型**（`src/spec.ts`）：storage domain `redteam`（version 1，增量演进兼容旧库）——`goals` / `intents` / `facts` / `assets` / `findings` / `evidence` / `credentials` 七张表。goal 按会话键控，其余记录 id 为 `<kind>-<n>`（按会话计数，重开 goal 归零）。
 - **确定性 id**（`src/store.ts`）：工具返回 id 供模型跨调用引用；会话投影从日志纯重放同一张图。
-- **工具**（`src/tools.ts`）：23 个 —— `redteam_add_goal`（authorization 必填，重开 goal 关闭旧 engagement）/ `redteam_add_intent`（可选 phase）/ `redteam_add_evidence` / `redteam_add_fact`（evidenceIds 引用、可选 phase）/ `redteam_add_asset`（parentId 留空为根资产，tags 指纹）/ `redteam_add_finding`（reproducibleSteps 必填；cvssVector 自动算分；techniqueIds/owaspIds 校验）/ `redteam_add_credential`（凭据登记，脱敏展示）/ `redteam_update_intent`（任务树状态推进）/ `redteam_retest_finding`（复测闭环）/ `redteam_update_credential`(验证凭据) / `redteam_submit`（子 agent 分批直写指定父 intent）/ `redteam_add_scope`（结构化授权边界 in/out）/ `redteam_state`（含 nextSteps 建议与凭据复用、范围合规）/ `redteam_graph` / `redteam_report`（markdown|html|json|sarif|navlayer|stix|taxii|ioc-csv）/ `redteam_engagements`（历史列表）。
+- **工具**（`src/tools.ts`）：25 个 —— `redteam_add_goal`（authorization 必填，重开 goal 关闭旧 engagement）/ `redteam_add_intent`（可选 phase）/ `redteam_add_evidence` / `redteam_add_fact`（evidenceIds 引用、可选 phase）/ `redteam_add_asset`（parentId 留空为根资产，tags 指纹）/ `redteam_add_finding`（reproducibleSteps 必填；cvssVector 自动算分；techniqueIds/owaspIds 校验）/ `redteam_add_credential`（凭据登记，脱敏展示）/ `redteam_update_intent`（任务树状态推进）/ `redteam_retest_finding`（复测闭环）/ `redteam_flag_finding`（DefectDojo 式分诊：误报/范围外/风险接受/审核中）/ `redteam_update_credential`(验证凭据) / `redteam_submit`（子 agent 分批直写指定父 intent）/ `redteam_add_scope`（结构化授权边界 in/out）/ `redteam_state`（含 nextSteps 建议与凭据复用、范围合规）/ `redteam_search`（12 类记录跨表检索）/ `redteam_overview`（部署级全局度量）/ `redteam_graph` / `redteam_report`（markdown|html|json|sarif|navlayer|stix|taxii|ioc-csv）/ `redteam_engagements`（历史列表）。
 - **CVSS 计算**（`src/cvss.ts`）：FIRST CVSS v3.1 基础分实现（含官方 roundup 防浮点漂移），20 个参考向量测试覆盖。
 - **会话投影**（`src/projection.ts`）：折叠已日志化的 `redteam_*` 调用为 `{ goal, nodes, assets, findings, credentials, counts }`，镜像 store 的引用拒绝；密文永不进入投影。
 - **Web 标签页**（`src/client/`）：按会话注册（当前会话或祖先链含 redteam 预设即显示）；十二个子标签——链路（canvas 力导向图：拖拽/缩放/悬停高亮/点选详情抽屉——事实节点显示真实详情与证据引用/方向粒子流）、统计（严重度环形图、任务树与覆盖度动画进度条、ATT&CK 覆盖墙、防御触达率、kill-chain 泳道、范围合规）、立体（零依赖 3D 攻击地形：轨道旋转/推拉/自动旋转/深度排序）、漏洞（检测徽章+重复标记）、资产、凭据（脱敏列表）、产物、证据（证据元数据+事实清单，内容不进视图）、样本、IOC（类型筛选）、目标（crown-jewel 清单）、报告。13 张表全部有可视化入口。

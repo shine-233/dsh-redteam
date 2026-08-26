@@ -11,7 +11,7 @@ import type { ProjectionSessionEvent } from '@deepseek-ai/dsh-session-projection
 import { z } from 'zod'
 import { ATTACK_TECHNIQUE_RE, scoreVector } from './cvss.js'
 import { scopeCheck } from './scope.js'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_FLAGS, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS } from './types.js'
 import type {
   EdgeRelation,
   EngagementCounts,
@@ -68,6 +68,7 @@ export const redteamProjectionSchema = z.object({
     affectedAssetId: z.union([z.string(), z.null()]).default(null),
     detected: z.enum(['undetected', 'logged', 'alerted', 'prevented']).nullable().default(null),
     duplicateOf: z.union([z.string(), z.null()]).default(null),
+    flag: z.enum(['under-review', 'false-positive', 'out-of-scope', 'risk-accepted']).nullable().default(null),
   })),
   credentials: z.array(z.object({
     id: z.string(),
@@ -193,6 +194,7 @@ const MUTATING = new Set([
   'redteam_add_scope',
   'redteam_update_intent',
   'redteam_retest_finding',
+  'redteam_flag_finding',
   'redteam_update_credential',
   'redteam_close_goal',
   'redteam_submit',
@@ -351,6 +353,7 @@ function applyMutation(state: FoldState, name: string, args: any): void {
           : null,
         detected: DETECTION_OUTCOMES.includes(args?.detected) ? args.detected : null,
         duplicateOf: typeof args?.duplicateOf === 'string' && args.duplicateOf !== '' ? args.duplicateOf : null,
+        flag: FINDING_FLAGS.includes(args?.flag) ? args.flag : null,
       })
       state.findings = evictOldest([...state.findings], WINDOW_CAP)
       state.edges = evictOldest([...state.edges], WINDOW_CAP * 2)
@@ -392,6 +395,15 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       } else if (finding !== undefined && args?.outcome === 'still-vulnerable') {
         state.findings = state.findings.map((f) =>
           f.id === finding.id ? { ...f, status: null } : f)
+      }
+      break
+    }
+    case 'redteam_flag_finding': {
+      const finding = state.findings.find((f) => f.id === args?.findingId)
+      if (finding !== undefined) {
+        const flag = args?.flag === 'none' || !FINDING_FLAGS.includes(args?.flag) ? null : (args.flag as (typeof FINDING_FLAGS)[number])
+        state.findings = state.findings.map((f) =>
+          f.id === finding.id ? { ...f, flag } : f)
       }
       break
     }

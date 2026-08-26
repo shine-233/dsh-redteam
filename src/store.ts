@@ -20,6 +20,7 @@ import type {
   EvidenceKind,
   EvidenceRecord,
   FactRecord,
+  FindingFlag,
   FindingRecord,
   GoalRecord,
   GraphEdge,
@@ -34,7 +35,7 @@ import type {
   ScopeEntryRecord,
   Severity,
 } from './types.js'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, INTENT_STATUSES, IOC_TYPES, SAMPLE_KINDS, SCOPE_KINDS } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_FLAGS, INTENT_STATUSES, IOC_TYPES, SAMPLE_KINDS, SCOPE_KINDS, SEVERITIES } from './types.js'
 import {
   artifactSchema,
   assetSchema,
@@ -787,12 +788,131 @@ export class EngagementStore {
   }
 
   /**
+   * Triage state on a finding (DefectDojo-style): under-review /
+   * false-positive / out-of-scope / risk-accepted; `none` clears the flag.
+   * Flagged findings stay in records and reports — they are marked, not
+   * deleted. SARIF suppresses false positives.
+   */
+  async flagFinding(sessionId: string, findingId: string, patch: {
+    flag: FindingFlag | 'none'
+    note?: string
+    evidenceIds?: string[]
+  }): Promise<FindingRecord & { id: string }> {
+    this.requireEvidence(sessionId, patch.evidenceIds ?? [])
+    if (patch.flag !== 'none' && !FINDING_FLAGS.includes(patch.flag)) {
+      throw new StoreError('invalid-record', `invalid finding flag: '${patch.flag}'`)
+    }
+    const existing = this.get<FindingRecord>('findings', sessionId, findingId)
+    if (existing === undefined) {
+      throw new StoreError('missing-ref', `finding '${findingId}' does not exist in this session`)
+    }
+    const updated: FindingRecord = patch.flag === 'none'
+      ? { ...existing, flag: undefined, flagNote: undefined, flaggedAt: undefined }
+      : {
+          ...existing,
+          flag: patch.flag,
+          ...(patch.note !== undefined && patch.note !== '' ? { flagNote: patch.note } : {}),
+          flaggedAt: Date.now(),
+        }
+    await this.put('findings', findingId, updated)
+    return { ...updated, id: findingId }
+  }
+
+  /**
+   * Cross-table keyword search over the ACTIVE engagement window. Hits are
+   * snippets grouped by record kind; credential raw secrets never match —
+   * only username/target/masked material.
+   */
+  search(sessionId: string, query: string): { query: string; total: number; hits: { kind: string; id: string; snippet: string }[] } {
+    const q = query.trim().toLowerCase()
+    if (q === '') return { query, total: 0, hits: [] }
+    const win = this.windowOf(sessionId)
+    if (win === null) return { query, total: 0, hits: [] }
+    const PER_KIND = 8
+    const hits: { kind: string; id: string; snippet: string }[] = []
+    const scan = (kind: string, rows: [string, string][], total: number): void => {
+      let n = 0
+      for (const [id, text] of rows) {
+        const idx = text.toLowerCase().indexOf(q)
+        if (idx === -1) continue
+        const start = Math.max(0, idx - 40)
+        const snippet = `${start > 0 ? '…' : ''}${text.slice(start, idx + q.length + 60)}${idx + q.length + 60 < text.length ? '…' : ''}`
+        hits.push({ kind, id, snippet })
+        n += 1
+        if (n >= Math.min(PER_KIND, total)) break
+      }
+    }
+    const r = {
+      intents: this.rowsInWindow('intents', sessionId, win) as [string, IntentRecord][],
+      facts: this.rowsInWindow('facts', sessionId, win) as [string, FactRecord][],
+      assets: this.rowsInWindow('assets', sessionId, win) as [string, AssetRecord][],
+      findings: this.rowsInWindow('findings', sessionId, win) as [string, FindingRecord][],
+      credentials: this.rowsInWindow('credentials', sessionId, win) as [string, CredentialRecord][],
+      artifacts: this.rowsInWindow('artifacts', sessionId, win) as [string, ArtifactRecord][],
+      samples: this.rowsInWindow('samples', sessionId, win) as [string, SampleRecord][],
+      iocs: this.rowsInWindow('iocs', sessionId, win) as [string, IocRecord][],
+      objectives: this.rowsInWindow('objectives', sessionId, win) as [string, ObjectiveRecord][],
+      hints: this.rowsInWindow('hints', sessionId, win) as [string, HintRecord][],
+      scopeEntries: this.rowsInWindow('scope_entries', sessionId, win) as [string, ScopeEntryRecord][],
+      evidence: this.rowsInWindow('evidence', sessionId, win) as [string, EvidenceRecord][],
+    }
+    scan('intent', r.intents.map(([id, x]) => [id, `${x.title} ${x.rationale}`] as [string, string]), PER_KIND)
+    scan('fact', r.facts.map(([id, x]) => [id, `${x.detail} ${x.target ?? ''}`] as [string, string]), PER_KIND)
+    scan('asset', r.assets.map(([id, x]) => [id, `${x.type} ${x.value} ${(x.tags ?? []).join(' ')} ${x.notes ?? ''}`] as [string, string]), PER_KIND)
+    scan('finding', r.findings.map(([id, x]) => [id, `${x.title} ${x.description} ${x.remediation ?? ''}`] as [string, string]), PER_KIND)
+    // Credentials: masked material only — raw secrets never match.
+    scan('credential', r.credentials.map(([id, x]) => [id, `${x.kind} ${x.username ?? ''} ${x.target ?? ''} ${maskSecret(x.secret)}`] as [string, string]), PER_KIND)
+    scan('artifact', r.artifacts.map(([id, x]) => [id, `${x.kind} ${x.location} ${x.description ?? ''}`] as [string, string]), PER_KIND)
+    scan('sample', r.samples.map(([id, x]) => [id, `${x.kind} ${x.location} ${x.fileType ?? ''}`] as [string, string]), PER_KIND)
+    scan('ioc', r.iocs.map(([id, x]) => [id, `${x.type} ${x.value} ${x.context ?? ''}`] as [string, string]), PER_KIND)
+    scan('objective', r.objectives.map(([id, x]) => [id, x.title] as [string, string]), PER_KIND)
+    scan('hint', r.hints.map(([id, x]) => [id, x.text] as [string, string]), PER_KIND)
+    scan('scope', r.scopeEntries.map(([id, x]) => [id, `${x.kind} ${x.value} ${x.note ?? ''}`] as [string, string]), PER_KIND)
+    // Evidence matches on label only; content is excluded by design.
+    scan('evidence', r.evidence.map(([id, x]) => [id, `${x.kind} ${x.label}`] as [string, string]), PER_KIND)
+    return { query, total: hits.length, hits }
+  }
+
+  /**
+   * Deployment-wide overview across every recorded engagement/session
+   * (DefectDojo metrics-dashboard style): totals, severity distribution,
+   * detection feedback, triage flags.
+   */
+  overview(): {
+    engagements: number
+    findings: number
+    fixed: number
+    severity: Record<string, number>
+    detection: Record<string, number>
+    flags: Record<string, number>
+    tables: Record<string, number>
+  } {
+    const severity: Record<string, number> = {}
+    for (const s of SEVERITIES) severity[s] = 0
+    const detection: Record<string, number> = {}
+    const flags: Record<string, number> = {}
+    let findingsCount = 0
+    let fixed = 0
+    for (const [, f] of this.domain.table('findings').entries() as IterableIterator<[string, FindingRecord]>) {
+      findingsCount += 1
+      severity[f.severity] = (severity[f.severity] ?? 0) + 1
+      if (f.status === 'fixed') fixed += 1
+      if (f.detected !== undefined) detection[f.detected] = (detection[f.detected] ?? 0) + 1
+      if (f.flag !== undefined) flags[f.flag] = (flags[f.flag] ?? 0) + 1
+    }
+    const tables: Record<string, number> = {}
+    for (const t of ['goals', 'intents', 'facts', 'assets', 'findings', 'evidence', 'credentials', 'artifacts', 'hints', 'samples', 'iocs', 'objectives', 'scope_entries'] as const) {
+      tables[t] = [...this.domain.table(t).entries()].length
+    }
+    return { engagements: tables['goals']!, findings: findingsCount, fixed, severity, detection, flags, tables }
+  }
+
+  /**
    * ATT&CK technique coverage over the current engagement: `proven` =
    * techniques behind confirmed findings; `attempted` = planned on intents
    * or exercised without (yet) proving a finding.
    */
-  techniqueCoverage(sessionId: string): { attempted: string[]; proven: string[] } {
-    const win = this.windowOf(sessionId)
+  techniqueCoverage(sessionId: string): { attempted: string[]; proven: string[] } {    const win = this.windowOf(sessionId)
     if (win === null) return { attempted: [], proven: [] }
     const proven = new Set<string>()
     for (const [, finding] of this.rowsInWindow('findings', sessionId, win) as [string, FindingRecord][]) {
@@ -1265,6 +1385,7 @@ export class EngagementStore {
           affectedAssetId: f.affectedAssetId ?? null,
           detected: f.detected ?? null,
           duplicateOf: f.duplicateOf ?? null,
+          flag: f.flag ?? null,
         }))
     const credentials = this.maskedCredentials(sessionId).map((c) => ({
       id: c.id,

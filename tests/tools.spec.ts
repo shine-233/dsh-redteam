@@ -251,6 +251,98 @@ describe('redteam tools', () => {
     expect(JSON.stringify(projection)).not.toContain('SECRET-RESPONSE-BODY')
   })
 
+  it('triages findings and suppresses false positives in SARIF', async () => {
+    const { registry, store } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'triage', authorization: 'ROE-17' }, exec)
+    await registry.call('redteam_add_intent', { title: 'i' }, exec)
+    await registry.call('redteam_add_finding', {
+      intentId: 'intent-1', title: 'noisy scanner hit', severity: 'low', description: 'banner grab',
+      reproducibleSteps: ['nc host 80'],
+    }, exec)
+    await registry.call('redteam_add_finding', {
+      intentId: 'intent-1', title: 'real sqli', severity: 'critical', description: '',
+      reproducibleSteps: ["' UNION"], cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H',
+    }, exec)
+
+    const flagged = await registry.call('redteam_flag_finding', {
+      findingId: 'finding-1', flag: 'false-positive', note: 'scanner misfire per ticket SEC-42',
+    }, exec)
+    expect(flagged.value).toEqual({ findingId: 'finding-1', flag: 'false-positive' })
+    expect(store.state('session-1').nextSteps.some((s) => s.includes('scope violation'))).toBe(false)
+
+    const sarif = await registry.call('redteam_report', { format: 'sarif' }, exec)
+    const run = JSON.parse((sarif.value as { body: string }).body).runs[0]
+    const fp = run.results.find((r: { ruleId: string }) => r.ruleId === 'finding-1')
+    expect(fp.suppressions[0].status).toBe('accepted')
+    expect(fp.suppressions[0].justification).toContain('SEC-42')
+    expect(fp.properties.triage).toBe('false-positive')
+    expect(run.results.find((r: { ruleId: string }) => r.ruleId === 'finding-2').suppressions).toBeUndefined()
+
+    // Clear the flag back to none.
+    await registry.call('redteam_flag_finding', { findingId: 'finding-1', flag: 'none' }, exec)
+    expect(store.projection('session-1').findings.find((f) => f.id === 'finding-1')!.flag).toBeNull()
+
+    const bad = await registry.call('redteam_flag_finding', { findingId: 'finding-nope', flag: 'false-positive' }, exec)
+    expect(bad.ok).toBe(false)
+  })
+
+  it('searches across tables without leaking credential secrets', async () => {
+    const { registry } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'search target', authorization: 'ROE-18' }, exec)
+    await registry.call('redteam_add_intent', { title: 'probe portal' }, exec)
+    await registry.call('redteam_add_asset', { type: 'host', value: 'portal.example.net' }, exec)
+    await registry.call('redteam_add_credential', { kind: 'password', secret: 'Sup3rUnique!', username: 'svc-backup', target: 'portal.example.net' }, exec)
+
+    const res = await registry.call('redteam_search', { query: 'portal' }, exec)
+    expect(res.ok).toBe(true)
+    const { total, hits } = res.value as { total: number; hits: { kind: string; id: string; snippet: string }[] }
+    const kinds = hits.map((h) => h.kind)
+    expect(kinds).toContain('intent')
+    expect(kinds).toContain('asset')
+    expect(kinds).toContain('credential')
+
+    // Raw secrets are unsearchable — masked form only.
+    const secretProbe = await registry.call('redteam_search', { query: 'Sup3rUnique!' }, exec)
+    expect((secretProbe.value as { total: number }).total).toBe(0)
+
+    const empty = await registry.call('redteam_search', { query: 'zzz-no-match-zzz' }, exec)
+    expect((empty.value as { total: number }).total).toBe(0)
+  })
+
+  it('aggregates a deployment-wide overview across engagements', async () => {
+    const { registry, store } = await makeRegistry()
+    const exec = fakeExec()
+
+    await registry.call('redteam_add_goal', { objective: 'first engagement', authorization: 'ROE-A' }, exec)
+    await registry.call('redteam_add_intent', { title: 'i1' }, exec)
+    await registry.call('redteam_add_finding', {
+      intentId: 'intent-1', title: 'f1', severity: 'high', description: '', reproducibleSteps: ['s'],
+      detected: 'alerted',
+    }, exec)
+    // Supersede with a second engagement in the same session…
+    await registry.call('redteam_add_goal', { objective: 'second engagement', authorization: 'ROE-B' }, exec)
+    await registry.call('redteam_add_intent', { title: 'i2' }, exec)
+    await registry.call('redteam_add_finding', {
+      intentId: 'intent-2', title: 'f2', severity: 'critical', description: '', reproducibleSteps: ['s'],
+      detected: 'undetected',
+    }, exec)
+    await registry.call('redteam_flag_finding', { findingId: 'finding-2', flag: 'risk-accepted', note: 'deferred' }, exec)
+
+    const overview = store.overview()
+    expect(overview.engagements).toBeGreaterThanOrEqual(2)
+    expect(overview.findings).toBe(2)
+    expect(overview.severity['high']).toBe(1)
+    expect(overview.severity['critical']).toBe(1)
+    expect(overview.detection).toMatchObject({ alerted: 1, undetected: 1 })
+    expect(overview.flags).toMatchObject({ 'risk-accepted': 1 })
+    expect(overview.tables['findings']).toBe(2)
+
+    const tool = await registry.call('redteam_overview', {}, exec)
+    expect(tool.ok).toBe(true)
+  })
+
   it('exports SARIF 2.1.0 with levels and security-severity, no defer', async () => {
     const { registry } = await makeRegistry()
     const exec = fakeExec()

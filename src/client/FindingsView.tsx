@@ -15,6 +15,13 @@ const DETECTED_BADGE: Record<string, { icon: string; label: string; cls: string 
   prevented: { icon: '⛔', label: '被阻断', cls: 'rt-det-prevented' },
 }
 
+const FLAG_BADGE: Record<string, { label: string; cls: string }> = {
+  'under-review': { label: '🔎 审核中', cls: 'rt-flag-under-review' },
+  'false-positive': { label: '🚫 误报', cls: 'rt-flag-false-positive' },
+  'out-of-scope': { label: '⛔ 范围外', cls: 'rt-flag-out-of-scope' },
+  'risk-accepted': { label: '🤝 风险接受', cls: 'rt-flag-risk-accepted' },
+}
+
 export function FindingsView({ projection }: { projection: RedteamProjection }): React.ReactNode {
   if (projection.findings.length === 0) {
     return <p className="rt-empty">还没有已确认的漏洞。漏洞需要至少一条可复现步骤才能写入记录。</p>
@@ -40,6 +47,11 @@ export function FindingsView({ projection }: { projection: RedteamProjection }):
             {finding.detected !== null && DETECTED_BADGE[finding.detected] !== undefined && (
               <span className={`rt-detected ${DETECTED_BADGE[finding.detected]!.cls}`}>
                 {DETECTED_BADGE[finding.detected]!.icon} {DETECTED_BADGE[finding.detected]!.label}
+              </span>
+            )}
+            {finding.flag !== null && FLAG_BADGE[finding.flag] !== undefined && (
+              <span className={`rt-flagged ${FLAG_BADGE[finding.flag]!.cls}`}>
+                {FLAG_BADGE[finding.flag]!.label}
               </span>
             )}
             <div className="rt-meta">

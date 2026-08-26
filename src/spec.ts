@@ -36,6 +36,7 @@ import {
   DETECTION_OUTCOMES,
   EVIDENCE_KINDS,
   FINDING_STATUSES,
+  FINDING_FLAGS,
   GOAL_OUTCOMES,
   HINT_SOURCES,
   INTENT_STATUSES,
@@ -119,6 +120,9 @@ export const findingSchema = z.object({
   resolvedAt: isoTime.optional(),
   retestNotes: z.string().optional(),
   duplicateOf: z.string().optional(),
+  flag: z.enum(FINDING_FLAGS).optional(),
+  flagNote: z.string().optional(),
+  flaggedAt: isoTime.optional(),
   createdAt: isoTime,
 })
 

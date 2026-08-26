@@ -9,7 +9,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { randomUUID } from 'node:crypto'
-import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_STATUSES, GOAL_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS, SEVERITIES } from './types.js'
+import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_FLAGS, FINDING_STATUSES, GOAL_OUTCOMES, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS, SEVERITIES } from './types.js'
 import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence, NewFinding, NewFact, NewHint, NewIoc, NewObjective, NewSample, NewScopeEntry, SubmitResult } from './store.js'
 import { maskSecret } from './secrets.js'
 import { scopeMatches } from './scope.js'
@@ -528,6 +528,61 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     execute: (args, exec) => withStore(exec, async (store, sid, a) => await store.submit(sid, a), args),
   })
 
+  const flagFinding = defineTool<{
+    findingId: string; flag: import('./types.js').FindingFlag | 'none'; note?: string; evidenceIds?: string[]
+  }, { findingId: string; flag: string }>({
+    name: 'redteam_flag_finding',
+    description:
+      "Apply a triage state to a confirmed finding (DefectDojo-style): under-review | false-positive | out-of-scope | risk-accepted, with a justification note and optional evidenceIds. flag=none clears. Flagged findings stay in records/reports but are marked; SARIF suppresses false positives.",
+    parameters: {
+      findingId: { type: 'string', required: true },
+      flag: { type: 'string', required: true, enum: [...FINDING_FLAGS, 'none'] },
+      note: { type: 'string', description: 'Justification (ROE clause / ticket reference).' },
+      evidenceIds: { type: 'array', items: { type: 'string' }, description: 'Evidence backing the triage decision.' },
+    },
+    output: {
+      schema: {},
+      render: (_a, v) => [{ type: 'text', text: `finding ${v.findingId} → ${v.flag}` }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      const updated = await store.flagFinding(sid, a.findingId, a)
+      return { findingId: updated.id, flag: updated.flag ?? 'none' }
+    }, args),
+  })
+
+  const search = defineTool<{ query: string }, { query: string; total: number; hits: { kind: string; id: string; snippet: string }[] }>({
+    name: 'redteam_search',
+    description:
+      'Keyword search across the active engagement (intents, facts, assets, findings, credentials-masked, artifacts, samples, iocs, objectives, hints, scope, evidence-labels). Returns snippets grouped by record kind — find anything fast without dumping redteam_state.',
+    parameters: {
+      query: { type: 'string', required: true, description: 'Case-insensitive substring.' },
+    },
+    output: {
+      schema: {},
+      render: (_a, v) => [{
+        type: 'text',
+        text: `${v.total} hit(s) for "${v.query}"` + (v.hits.length > 0
+          ? `: ${v.hits.slice(0, 8).map((h) => `${h.kind}/${h.id}`).join(', ')}` : ''),
+      }],
+    },
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => await store.search(sid, a.query), args),
+  })
+
+  const overview = defineTool<Record<string, never>, ReturnType<EngagementStore['overview']>>({
+    name: 'redteam_overview',
+    description:
+      'Deployment-wide metrics across every recorded engagement (all sessions): totals per table, severity distribution, detection feedback, triage flags, fixed count. The cross-engagement dashboard.',
+    parameters: {},
+    output: {
+      schema: {},
+      render: (_a, v) => [{
+        type: 'text',
+        text: JSON.stringify({ engagements: v.engagements, findings: v.findings, fixed: v.fixed, severity: v.severity, flags: v.flags }),
+      }],
+    },
+    execute: (_args, exec) => withStore(exec, async (store) => await store.overview(), {} as Record<string, never>),
+  })
+
   const state = defineTool<Record<string, never>, StateView>({
     name: 'redteam_state',
     description: 'Current engagement summary: active goal, record counts, open intents, coverage/technique gaps, credential reuse, and suggested next steps.',
@@ -607,8 +662,8 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     addGoal, addIntent, addEvidence, addFact, addAsset, addFinding,
     addCredential, addArtifact, addHint, addSample, addIoc, addObjective,
     addScopeEntry,
-    proveObjective, updateIntent, retestFinding, updateCredential, closeGoal,
-    submit, state, graph, report, engagements,
+    proveObjective, updateIntent, retestFinding, flagFinding, updateCredential, closeGoal,
+    submit, state, search, overview, graph, report, engagements,
   ]
 }
 
@@ -702,7 +757,17 @@ async function sarifReport(store: import('./store.js').EngagementStore, sid: str
           ...(f.affectedAssetId !== undefined ? { affectedAssetId: f.affectedAssetId } : {}),
           ...(f.status === 'fixed' ? { retestStatus: 'fixed' } : {}),
           ...(f.detected !== undefined ? { detectionOutcome: f.detected } : {}),
+          ...(f.flag !== undefined ? { triage: f.flag } : {}),
         },
+        ...(f.flag === 'false-positive'
+          ? {
+              suppressions: [{
+                kind: 'inSource' as const,
+                status: 'accepted' as const,
+                ...(f.flagNote !== undefined ? { justification: f.flagNote.slice(0, 300) } : {}),
+              }],
+            }
+          : {}),
         partialFingerprints: { 'redteamFindingId/v1': id },
       })),
     }],
@@ -935,10 +1000,12 @@ async function htmlReport(
         <header><span class="sev" style="color:${SEV_COLOR[f.severity]}">${f.severity.toUpperCase()}</span>
           <strong>${e(f.title)}</strong>
           ${f.status === 'fixed' ? '<span class="tag ok">✅ fixed</span>' : ''}
+          ${f.flag !== undefined ? `<span class="tag">${f.flag}</span>` : ''}
           ${f.duplicateOf !== undefined ? `<span class="tag">dup of ${e(f.duplicateOf)}</span>` : ''}
           ${f.cvssScore !== undefined ? `<span class="tag">CVSS ${f.cvssScore}</span>` : ''}
         </header>
         <p class="desc">${e(f.description)}</p>
+        ${f.flagNote !== undefined ? `<p class="meta">Triage: ${e(f.flagNote)}</p>` : ''}
         <ol class="steps">${f.reproducibleSteps.map((s) => `<li>${e(s)}</li>`).join('')}</ol>
         <p class="meta"><code>${id}</code>${f.affectedAssetId !== undefined ? ` · asset <code>${e(f.affectedAssetId)}</code>` : ''}
           ${(f.techniqueIds ?? []).length > 0 ? ` · ATT&CK ${f.techniqueIds!.map((t) => `<code>${t}</code>`).join(' ')}` : ''}
@@ -1237,6 +1304,15 @@ async function markdownReport(
       const fixedTag = f.status === 'fixed' ? ' ✅ 已修复 / FIXED' : ''
       const dupTag = f.duplicateOf !== undefined ? ` （重复 / dup of \`${f.duplicateOf}\`）` : ''
       lines.push(`### [${f.severity.toUpperCase()}] ${f.title} (\`${id}\`)${fixedTag}${dupTag}`)
+      if (f.flag !== undefined) {
+        const flagLabel: Record<string, string> = {
+          'under-review': '🔎 审核中 / UNDER REVIEW',
+          'false-positive': '🚫 误报 / FALSE POSITIVE',
+          'out-of-scope': '⛔ 范围外 / OUT OF SCOPE',
+          'risk-accepted': '🤝 风险接受 / RISK ACCEPTED',
+        }
+        lines.push('', `**${flagLabel[f.flag] ?? f.flag}**${f.flagNote !== undefined ? ` — ${f.flagNote}` : ''}`)
+      }
       lines.push('', f.description)
       if (f.affectedAssetId !== undefined) lines.push('', `- 受影响资产 / Affected asset: \`${f.affectedAssetId}\``)
       if (f.cvssVector !== undefined && f.cvssScore !== undefined) {

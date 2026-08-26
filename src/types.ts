@@ -37,6 +37,15 @@ export type IntentStatus = (typeof INTENT_STATUSES)[number]
 export const FINDING_STATUSES = ['confirmed', 'fixed'] as const
 export type FindingStatus = (typeof FINDING_STATUSES)[number]
 
+/**
+ * Triage states on a finding (DefectDojo-style): under review, false
+ * positive, out of scope, risk accepted. `redteam_flag_finding` applies or
+ * clears ('none') them; flagged findings stay in records and reports but are
+ * marked — SARIF suppresses false positives.
+ */
+export const FINDING_FLAGS = ['under-review', 'false-positive', 'out-of-scope', 'risk-accepted'] as const
+export type FindingFlag = (typeof FINDING_FLAGS)[number]
+
 /** Explicit objective outcome stamped when an engagement closes. */
 export const GOAL_OUTCOMES = ['achieved', 'partial', 'not-achieved'] as const
 export type GoalOutcome = (typeof GOAL_OUTCOMES)[number]
@@ -175,6 +184,11 @@ export interface FindingRecord {
   readonly retestNotes?: string | undefined
   /** Set when this finding duplicates an earlier one (Dradis-style dedup). */
   readonly duplicateOf?: string | undefined
+  /** Triage state (DefectDojo-style); omitted means untriaged/confirmed. */
+  readonly flag?: FindingFlag | undefined
+  /** Why the triage state was applied (ROE/ticket reference). */
+  readonly flagNote?: string | undefined
+  readonly flaggedAt?: number | undefined
   readonly createdAt: number
 }
 
@@ -374,6 +388,8 @@ export interface RedteamViewFinding {
   readonly detected: DetectionOutcome | null
   /** Set when this finding duplicates an earlier one. */
   readonly duplicateOf: string | null
+  /** Triage state; null means untriaged. */
+  readonly flag: FindingFlag | null
 }
 
 /** Credential as seen by the Web tab — masked, never the raw secret. */
