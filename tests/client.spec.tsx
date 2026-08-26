@@ -26,10 +26,10 @@ const projection: RedteamProjection = {
   findings: [
     { id: 'finding-1', intentId: 'intent-2', title: 'VPN 弱口令', severity: 'critical', cvssScore: 9.8,
       techniqueIds: ['T1110.003'], status: null, affectedAssetId: 'asset-1',
-      detected: 'alerted' as const, duplicateOf: null, flag: null, slaDueAt: null },
+      detected: 'alerted' as const, duplicateOf: null, flag: null, slaDueAt: null, jiraKey: null, jiraStatus: null },
     { id: 'finding-2', intentId: 'intent-1', title: '目录遍历', severity: 'medium', cvssScore: 6.5,
       techniqueIds: [], status: 'fixed' as const, affectedAssetId: 'asset-2',
-      detected: null, duplicateOf: 'finding-1', flag: 'risk-accepted' as const, slaDueAt: null },
+      detected: null, duplicateOf: 'finding-1', flag: 'risk-accepted' as const, slaDueAt: null, jiraKey: null, jiraStatus: null },
   ],
   credentials: [
     { id: 'cred-1', kind: 'password', username: 'admin', target: 'vpn.corp.example', assetId: 'asset-1', status: 'valid' },

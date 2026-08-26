@@ -11,6 +11,7 @@ import type { ProjectionSessionEvent } from '@deepseek-ai/dsh-session-projection
 import { z } from 'zod'
 import { ATTACK_TECHNIQUE_RE, scoreAnyVector } from './cvss.js'
 import { scopeCheck } from './scope.js'
+import { parseScanXml } from './scan-import.js'
 import { ARTIFACT_KINDS, CREDENTIAL_KINDS, CREDENTIAL_STATUSES, DETECTION_OUTCOMES, EVIDENCE_KINDS, FINDING_FLAGS, HINT_SOURCES, INTENT_STATUSES, IOC_TYPES, PHASES, SAMPLE_KINDS, SCOPE_KINDS, SLA_POLICY_DAYS } from './types.js'
 import type {
   EdgeRelation,
@@ -68,6 +69,8 @@ export const redteamProjectionSchema = z.object({
     affectedAssetId: z.union([z.string(), z.null()]).default(null),
     detected: z.enum(['undetected', 'logged', 'alerted', 'prevented']).nullable().default(null),
     slaDueAt: z.union([z.number(), z.null()]).default(null),
+    jiraKey: z.union([z.string(), z.null()]).default(null),
+    jiraStatus: z.union([z.string(), z.null()]).default(null),
     duplicateOf: z.union([z.string(), z.null()]).default(null),
     flag: z.enum(['under-review', 'false-positive', 'out-of-scope', 'risk-accepted']).nullable().default(null),
   })),
@@ -193,6 +196,8 @@ const MUTATING = new Set([
   'redteam_add_objective',
   'redteam_prove_objective',
   'redteam_add_scope',
+  'redteam_import_scan',
+  'redteam_jira_apply',
   'redteam_update_intent',
   'redteam_retest_finding',
   'redteam_flag_finding',
@@ -356,6 +361,8 @@ function applyMutation(state: FoldState, name: string, args: any): void {
         slaDueAt: computeSlaDueAt(args, validateSeverity(args?.severity)),
         duplicateOf: typeof args?.duplicateOf === 'string' && args.duplicateOf !== '' ? args.duplicateOf : null,
         flag: FINDING_FLAGS.includes(args?.flag) ? args.flag : null,
+        jiraKey: null,
+        jiraStatus: null,
       })
       state.findings = evictOldest([...state.findings], WINDOW_CAP)
       state.edges = evictOldest([...state.edges], WINDOW_CAP * 2)
@@ -406,6 +413,91 @@ function applyMutation(state: FoldState, name: string, args: any): void {
         const flag = args?.flag === 'none' || !FINDING_FLAGS.includes(args?.flag) ? null : (args.flag as (typeof FINDING_FLAGS)[number])
         state.findings = state.findings.map((f) =>
           f.id === finding.id ? { ...f, flag } : f)
+      }
+      break
+    }
+    case 'redteam_jira_apply': {
+      const updates: { findingId: string; jiraKey: string; jiraStatus?: string }[] = Array.isArray(args?.updates) ? args.updates : []
+      for (const u of updates) {
+        if (typeof u?.findingId !== 'string' || typeof u?.jiraKey !== 'string') continue
+        state.findings = state.findings.map((f) =>
+          f.id === u.findingId
+            ? { ...f, jiraKey: u.jiraKey, ...(typeof u.jiraStatus === 'string' ? { jiraStatus: u.jiraStatus } : {}) }
+            : f)
+      }
+      break
+    }
+    case 'redteam_import_scan': {
+      // Replay the scanner ingestion so imported records surface in the Web
+      // view. Mirrors the tool's store writes with fold-side id minting.
+      try {
+        const parsedScan = parseScanXml(args?.format === 'nessus-xml' ? 'nessus-xml' : 'nmap-xml', String(args?.xml ?? ''))
+        const intent = typeof args?.intentId === 'string' ? args.intentId : ''
+        if (!state.nodes.some((n) => n.id === intent)) break
+        const assetValue = new Map(state.assets.map((a) => [a.value, a.id]))
+
+        const evId = nextId(state, 'ev')
+        state.evidence.push({ id: evId, kind: 'output', label: `${args?.format ?? 'scan'} import` })
+        state.evidence = evictOldest([...state.evidence], WINDOW_CAP)
+
+        if (parsedScan.kind === 'nmap') {
+          for (const host of parsedScan.hosts) {
+            const rootVal = host.hostname ?? host.address
+            let hostId = assetValue.get(rootVal)
+            if (hostId === undefined) {
+              hostId = nextId(state, 'asset')
+              state.assets.push({ id: hostId, type: 'host', value: rootVal, parentId: null, tags: [] })
+              assetValue.set(rootVal, hostId)
+            }
+            for (const svc of host.services) {
+              const svcVal = `${host.address}:${svc.port}`
+              if (assetValue.has(svcVal)) continue
+              const sid2 = nextId(state, 'asset')
+              state.assets.push({ id: sid2, type: 'service', value: svcVal, parentId: hostId, tags: [svc.name, ...(svc.product !== null ? [svc.product] : [])] })
+              assetValue.set(svcVal, sid2)
+            }
+            if (host.services.length > 0 && state.nodes.some((n) => n.id === intent)) {
+              const factId = nextId(state, 'fact')
+              pushEdge(state.edges, intent, factId, 'yields')
+              state.facts.push({
+                id: factId,
+                intentId: intent,
+                detail: `${host.address}${host.hostname !== null ? ` (${host.hostname})` : ''}: open ${host.services.map((s) => `${s.port}/${s.name}`).join(', ')}`.slice(0, 240),
+                phase: 'recon',
+                confidence: null,
+                evidenceIds: [evId],
+              })
+              state.facts = evictOldest([...state.facts], WINDOW_CAP)
+            }
+          }
+        } else {
+          for (const host of parsedScan.hosts) {
+            if (!assetValue.has(host.address)) {
+              const hid = nextId(state, 'asset')
+              state.assets.push({ id: hid, type: 'host', value: host.address, parentId: null, tags: [] })
+              assetValue.set(host.address, hid)
+            }
+          }
+          for (const item of parsedScan.items) {
+            const hostId = assetValue.get(item.host) ?? null
+            const dupe = state.findings.some((f) => f.title === item.pluginName && f.affectedAssetId === hostId)
+            if (dupe) continue
+            applyMutation(state, 'redteam_add_finding', {
+              intentId: intent,
+              title: item.pluginName.slice(0, 200),
+              severity: item.severity,
+              description: item.description.slice(0, 4000),
+              reproducibleSteps: [item.output || item.description || `scanner plugin ${item.pluginId} on ${item.port}/${item.protocol}`],
+              ...(item.solution ? { remediation: item.solution.slice(0, 2000) } : {}),
+              ...(hostId !== null ? { affectedAssetId: hostId } : {}),
+              ...(item.cves.length > 0 ? { cveIds: item.cves } : {}),
+              evidenceIds: [],
+            })
+          }
+        }
+        state.edges = evictOldest([...state.edges], WINDOW_CAP * 2)
+      } catch {
+        // Malformed XML in the log — leave the window untouched.
       }
       break
     }
@@ -600,7 +692,7 @@ export function fold(state: FoldState, event: ProjectionSessionEvent): FoldState
     recomputeScopeIssues(draft)
     const evidenceDelta = name === 'redteam_submit'
       ? (Array.isArray(args?.evidence) ? args.evidence.length : 0)
-      : name === 'redteam_add_evidence' ? 1 : 0
+      : name === 'redteam_add_evidence' || name === 'redteam_import_scan' ? 1 : 0
     draft.counts = { ...recount(draft), evidence: recount(draft).evidence + evidenceDelta }
     const callId = event.data.callId ?? `${event.seq}`
     draft.pending = { ...draft.pending, [callId]: state }

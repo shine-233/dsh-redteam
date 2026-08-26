@@ -2,6 +2,15 @@
 
 所有显著变更记录在本文件。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循语义化。
 
+## [1.7.1] — 2026-08-26
+
+### 修复（打假审计）
+- **RBAC 假门禁**：`as` 参数此前只存在于 TS 泛型、未声明进 7 个协作工具的参数 schema——宿主校验可能将其剥离导致角色门被静默绕过；现已全部声明进 schema
+- **import_scan 孤儿数据**：先写证据后校验 intent，失败时留下孤儿证据；现改为前置校验，零残留（回归测试覆盖）
+- **导入/回写对 Web 不可见（假功能）**：`redteam_import_scan` 与 `redteam_jira_apply` 是复合写操作但折叠器不认识，导入的数据永远不出现在 Web 视图；投影现已重放这两个调用（资产树/事实/漏洞/jira 盖章全部可见）
+- SLA 逾期排除 `out-of-scope` 分诊标记；`redteam_overview` 表计数补 operators
+- `search` 清理死参数；协议提示词补 import/jira/triage 用法（中英双语）
+
 ## [1.7.0] — 2026-08-26
 
 五项平台级特性，对标 DefectDojo / Faraday / FIRST 官方实现。

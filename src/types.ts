@@ -424,6 +424,9 @@ export interface RedteamViewFinding {
   readonly flag: FindingFlag | null
   /** Remediation deadline (epoch ms); null when no policy applied. */
   readonly slaDueAt: number | null
+  /** External tracker binding snapshot; null until first sync. */
+  readonly jiraKey: string | null
+  readonly jiraStatus: string | null
 }
 
 /** Credential as seen by the Web tab — masked, never the raw secret. */

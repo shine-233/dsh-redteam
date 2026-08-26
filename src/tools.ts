@@ -14,6 +14,7 @@ import type { EngagementStore, NewArtifact, NewAsset, NewCredential, NewEvidence
 import { maskSecret } from './secrets.js'
 import { scopeMatches } from './scope.js'
 import { parseScanXml } from './scan-import.js'
+import { StoreError } from './store.js'
 
 export interface ToolDeps {
   store: () => Promise<EngagementStore>
@@ -431,6 +432,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     description:
       'Move an intent through the task tree: status active→done (verified direction) or blocked (needs decision/access), optionally retitle. Keeps the engagement progress board truthful.',
     parameters: {
+      as: { type: 'string', description: 'Acting operator handle (must be registered via redteam_add_operator). Omit when acting as the implicit commander.' },
       intentId: { type: 'string', required: true, description: 'Intent id to update.' },
       status: { type: 'string', enum: [...INTENT_STATUSES], description: 'New lifecycle state.' },
       title: { type: 'string' },
@@ -455,6 +457,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     description:
       'Record a retest outcome for one finding after remediation: fixed stamps the resolution time; still-vulnerable returns it to confirmed with the latest retest note.',
     parameters: {
+      as: { type: 'string', description: 'Acting operator handle (must be registered via redteam_add_operator). Omit when acting as the implicit commander.' },
       findingId: { type: 'string', required: true },
       outcome: { type: 'string', required: true, enum: ['fixed', 'still-vulnerable'] },
       notes: { type: 'string', description: 'Retest observation (what was tried this round).' },
@@ -479,6 +482,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     description:
       'Verify one credential: valid (worked against its target), invalid, or back to unverified. Cite evidenceIds proving the verification attempt.',
     parameters: {
+      as: { type: 'string', description: 'Acting operator handle (must be registered via redteam_add_operator). Omit when acting as the implicit commander.' },
       credentialId: { type: 'string', required: true },
       status: { type: 'string', required: true, enum: [...CREDENTIAL_STATUSES] },
       evidenceIds: { type: 'array', items: { type: 'string' }, description: 'Evidence backing the new status.' },
@@ -502,6 +506,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     description:
       'Close the active engagement with an explicit verdict: achieved / partial / not-achieved plus a closing summary. Prefer this over opening a new goal when the engagement simply ends — the verdict lands in the report header and the history list.',
     parameters: {
+      as: { type: 'string', description: 'Acting operator handle (must be registered via redteam_add_operator). Omit when acting as the implicit commander.' },
       outcome: { type: 'string', required: true, enum: [...GOAL_OUTCOMES] },
       summary: { type: 'string', description: 'One-paragraph closing summary.' },
     },
@@ -525,6 +530,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     description:
       'Batch-write confirmed results to one parent intent (subagent entry point). Within one batch: evidence mints first, then assets, credentials and artifacts; facts/findings may cite fresh evidenceIds and asset ids. Never resubmit duplicates.',
     parameters: {
+      as: { type: 'string', description: 'Acting operator handle (must be registered via redteam_add_operator). Omit when acting as the implicit commander.' },
       intentId: { type: 'string', required: true, description: 'Parent intent id assigned by the commander.' },
       evidence: { type: 'array', items: evidenceItems, description: 'New evidence created before facts/findings.' },
       facts: { type: 'array', items: factItems },
@@ -556,6 +562,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     description:
       "Apply a triage state to a confirmed finding (DefectDojo-style): under-review | false-positive | out-of-scope | risk-accepted, with a justification note and optional evidenceIds. flag=none clears. Flagged findings stay in records/reports but are marked; SARIF suppresses false positives.",
     parameters: {
+      as: { type: 'string', description: 'Acting operator handle (must be registered via redteam_add_operator). Omit when acting as the implicit commander.' },
       findingId: { type: 'string', required: true },
       flag: { type: 'string', required: true, enum: [...FINDING_FLAGS, 'none'] },
       note: { type: 'string', description: 'Justification (ROE clause / ticket reference).' },
@@ -716,6 +723,9 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       }],
     },
     execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      if (!store.hasIntent(sid, a.intentId)) {
+        throw new StoreError('missing-ref', `intent '${a.intentId}' does not exist in this session`)
+      }
       const parsed = parseScanXml(a.format, a.xml)
       const evidenceId = await store.addEvidence(sid, {
         kind: 'output',

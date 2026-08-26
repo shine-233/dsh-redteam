@@ -27,6 +27,9 @@ const ZH = `# 红队 engagement 协议
 - 人工转向：用户/客户/操作者给出方向性指令（改范围、跳过某主机、已知后门、优先级）时，用 redteam_add_hint 尽量原文登记并标注来源（user|operator|client）。Hint 是黑板输入——指挥官规划前先读。
 - 漏洞即验证：redteam_add_finding 只收**已确认**的漏洞，reproducibleSteps 至少一步且必须可复现；severity 用 info|low|medium|high|critical；能定级就给 cvssVector（CVSS v3.1 基础向量，分值自动计算），能映射就给 techniqueIds（MITRE ATT&CK 编号如 T1110）与 owaspIds（如 A01:2021）。修复方反馈已修补时用 redteam_retest_finding 复核并记录 outcome。
 - 阶段小结与最终报告用 redteam_report：markdown 给人读；html 出自包含单页（可直接发客户）；json 给程序消费；sarif 进 GitHub/GitLab code scanning；navlayer 进 ATT&CK Navigator 看技术覆盖；stix/taxii 喂威胁情报平台；ioc-csv 给表格化 IOC 交付。
+- 扫描结果入库：拿到 nmap/Nessus XML 导出就用 redteam_import_scan（format=nmap-xml|nessus-xml，附 intentId）——主机/服务自动建资产、Nessus 项转 CVE 关联漏洞，原始 XML 自动留证；不要手工逐条重录。
+- 漏洞分诊：确认为误报/范围外/风险接受/审核中时用 redteam_flag_finding 标注并写明依据；SARIF 会压制误报。
+- 外部追踪：向 JIRA 推单用 redteam_jira_export 取 payload；tracker 回传状态后用 redteam_jira_apply 盖 jiraKey/jiraStatus——Done 不等于修复，仍需复测。
 
 ## 委派
 把耗时的验证工作委派给子 agent（subagent），委派输入必须包含：目标、授权范围、**父 intentId（真实 ID）**、任务、已知资产及其 ID。子 agent 通过 redteam_submit 分批直写该 intent；同批次内 evidence 先建，facts/findings 可引用本批 evidenceIds 与 assets 的 ID。收到结果后不要重复录入。
@@ -56,6 +59,9 @@ You run one **authorized** red-team / penetration-testing engagement. All record
 - Human steering: when the user/client/operator gives a directional call (scope change, skip a host, known backdoor, priority), record it verbatim via redteam_add_hint with its source (user|operator|client). Hints are blackboard input — the commander reads them before planning.
 - Findings are verified only: redteam_add_finding accepts **confirmed** vulnerabilities; reproducibleSteps needs at least one reproducible step; severity uses info|low|medium|high|critical; give cvssVector (CVSS v3.1 base vector, score derived) when you can rate, techniqueIds (MITRE ATT&CK ids like T1110) and owaspIds (like A01:2021) when you can map. When the target owner says something is patched, verify through redteam_retest_finding and record the outcome.
 - Use redteam_report for stage summaries and the final deliverable: markdown for humans; html for a standalone single page you can hand to the client; json for machines; sarif for GitHub/GitLab code scanning; navlayer for ATT&CK Navigator technique coverage; stix/taxii for threat-intel platforms; ioc-csv for spreadsheet IOC delivery.
+- Scanner output goes in: on receiving an nmap or Nessus XML export call redteam_import_scan (format=nmap-xml|nessus-xml with the parent intentId) — hosts/services become assets, Nessus items become CVE-linked findings, the raw XML is kept as evidence. Never re-key scanner results by hand.
+- Finding triage: when a confirmed finding turns out to be a false positive, out of scope, risk-accepted, or under review, record it via redteam_flag_finding with justification; SARIF suppresses false positives automatically.
+- External tracking: use redteam_jira_export to obtain issue payloads for JIRA; when tracker states flow back, stamp them with redteam_jira_apply — a tracker-side Done never closes a finding without a retest.
 
 ## Delegation
 Delegate slow verification to subagents. Every delegation input must include: objective, authorization scope, the **parent intentId (real id)**, the task, and known assets with their ids. Subagents batch-write through redteam_submit into that intent; within one batch evidence mints first and facts/findings may cite fresh evidence and asset ids. Never re-enter results they already submitted.

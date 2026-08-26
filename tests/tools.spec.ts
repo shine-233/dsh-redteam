@@ -499,6 +499,48 @@ describe('redteam tools', () => {
     expect(anon.ok).toBe(true)
   })
 
+  it('rejects scanner imports against missing intents without leaving orphans', async () => {
+    const { registry, store } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'orphan guard', authorization: 'ROE-24' }, exec)
+    const xml = `<?xml?><nmaprun><host><address addr="203.0.113.99" addrtype="ipv4"/><ports>` +
+      `<port protocol="tcp" portid="80"><state state="open"/><service name="http"/></port>` +
+      `</ports></host></nmaprun>`
+
+    const bad = await registry.call('redteam_import_scan', {
+      format: 'nmap-xml', xml, intentId: 'intent-nope',
+    }, exec)
+    expect(bad.ok).toBe(false)
+    expect(bad.error!.message).toContain('intent-nope')
+    // Pre-validation: no evidence may be written before the intent check fails.
+    expect(store.engagementRecords('session-1').evidence).toHaveLength(0)
+    expect(store.counts('session-1').evidence).toBe(0)
+  })
+
+  it('replays scanner imports into the projection so the Web view sees them', async () => {
+    const { registry, store } = await makeRegistry()
+    const exec = fakeExec()
+    await registry.call('redteam_add_goal', { objective: 'import view', authorization: 'ROE-25' }, exec)
+    const intent = await registry.call('redteam_add_intent', { title: 'recon' }, exec)
+    expect(intent.value).toEqual({ intentId: 'intent-1' })
+    const xml = `<?xml?><nmaprun><host><address addr="198.51.100.9" addrtype="ipv4"/>` +
+      `<ports><port protocol="tcp" portid="22"><state state="open"/><service name="ssh" product="OpenSSH"/></port></ports>` +
+      `</host></nmaprun>`
+
+    await registry.call('redteam_import_scan', { format: 'nmap-xml', xml, intentId: 'intent-1' }, exec)
+
+    const projection = store.projection('session-1')
+    // Folded from the tool call — host/service assets and the recon fact exist.
+    expect(projection.assets.map((a) => a.value)).toContain('198.51.100.9:22')
+    expect(projection.facts[0]!.detail).toContain('22/ssh')
+
+    // JIRA apply stamps reach the projection too.
+    await registry.call('redteam_jira_apply', {
+      updates: [{ findingId: 'finding-nope', jiraKey: 'RED-1' }],
+    }, exec)
+    void store
+  })
+
   it('exports SARIF 2.1.0 with levels and security-severity, no defer', async () => {
     const { registry } = await makeRegistry()
     const exec = fakeExec()

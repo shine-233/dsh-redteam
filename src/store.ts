@@ -842,16 +842,16 @@ export class EngagementStore {
     if (win === null) return { query, total: 0, hits: [] }
     const PER_KIND = 8
     const hits: { kind: string; id: string; snippet: string }[] = []
-    const scan = (kind: string, rows: [string, string][], total: number): void => {
+    const scan = (kind: string, rows: [string, string][]): void => {
       let n = 0
       for (const [id, text] of rows) {
+        if (n >= PER_KIND) break
         const idx = text.toLowerCase().indexOf(q)
         if (idx === -1) continue
         const start = Math.max(0, idx - 40)
         const snippet = `${start > 0 ? '…' : ''}${text.slice(start, idx + q.length + 60)}${idx + q.length + 60 < text.length ? '…' : ''}`
         hits.push({ kind, id, snippet })
         n += 1
-        if (n >= Math.min(PER_KIND, total)) break
       }
     }
     const r = {
@@ -868,20 +868,20 @@ export class EngagementStore {
       scopeEntries: this.rowsInWindow('scope_entries', sessionId, win) as [string, ScopeEntryRecord][],
       evidence: this.rowsInWindow('evidence', sessionId, win) as [string, EvidenceRecord][],
     }
-    scan('intent', r.intents.map(([id, x]) => [id, `${x.title} ${x.rationale}`] as [string, string]), PER_KIND)
-    scan('fact', r.facts.map(([id, x]) => [id, `${x.detail} ${x.target ?? ''}`] as [string, string]), PER_KIND)
-    scan('asset', r.assets.map(([id, x]) => [id, `${x.type} ${x.value} ${(x.tags ?? []).join(' ')} ${x.notes ?? ''}`] as [string, string]), PER_KIND)
-    scan('finding', r.findings.map(([id, x]) => [id, `${x.title} ${x.description} ${x.remediation ?? ''}`] as [string, string]), PER_KIND)
+    scan('intent', r.intents.map(([id, x]) => [id, `${x.title} ${x.rationale}`] as [string, string]))
+    scan('fact', r.facts.map(([id, x]) => [id, `${x.detail} ${x.target ?? ''}`] as [string, string]))
+    scan('asset', r.assets.map(([id, x]) => [id, `${x.type} ${x.value} ${(x.tags ?? []).join(' ')} ${x.notes ?? ''}`] as [string, string]))
+    scan('finding', r.findings.map(([id, x]) => [id, `${x.title} ${x.description} ${x.remediation ?? ''}`] as [string, string]))
     // Credentials: masked material only — raw secrets never match.
-    scan('credential', r.credentials.map(([id, x]) => [id, `${x.kind} ${x.username ?? ''} ${x.target ?? ''} ${maskSecret(x.secret)}`] as [string, string]), PER_KIND)
-    scan('artifact', r.artifacts.map(([id, x]) => [id, `${x.kind} ${x.location} ${x.description ?? ''}`] as [string, string]), PER_KIND)
-    scan('sample', r.samples.map(([id, x]) => [id, `${x.kind} ${x.location} ${x.fileType ?? ''}`] as [string, string]), PER_KIND)
-    scan('ioc', r.iocs.map(([id, x]) => [id, `${x.type} ${x.value} ${x.context ?? ''}`] as [string, string]), PER_KIND)
-    scan('objective', r.objectives.map(([id, x]) => [id, x.title] as [string, string]), PER_KIND)
-    scan('hint', r.hints.map(([id, x]) => [id, x.text] as [string, string]), PER_KIND)
-    scan('scope', r.scopeEntries.map(([id, x]) => [id, `${x.kind} ${x.value} ${x.note ?? ''}`] as [string, string]), PER_KIND)
+    scan('credential', r.credentials.map(([id, x]) => [id, `${x.kind} ${x.username ?? ''} ${x.target ?? ''} ${maskSecret(x.secret)}`] as [string, string]))
+    scan('artifact', r.artifacts.map(([id, x]) => [id, `${x.kind} ${x.location} ${x.description ?? ''}`] as [string, string]))
+    scan('sample', r.samples.map(([id, x]) => [id, `${x.kind} ${x.location} ${x.fileType ?? ''}`] as [string, string]))
+    scan('ioc', r.iocs.map(([id, x]) => [id, `${x.type} ${x.value} ${x.context ?? ''}`] as [string, string]))
+    scan('objective', r.objectives.map(([id, x]) => [id, x.title] as [string, string]))
+    scan('hint', r.hints.map(([id, x]) => [id, x.text] as [string, string]))
+    scan('scope', r.scopeEntries.map(([id, x]) => [id, `${x.kind} ${x.value} ${x.note ?? ''}`] as [string, string]))
     // Evidence matches on label only; content is excluded by design.
-    scan('evidence', r.evidence.map(([id, x]) => [id, `${x.kind} ${x.label}`] as [string, string]), PER_KIND)
+    scan('evidence', r.evidence.map(([id, x]) => [id, `${x.kind} ${x.label}`] as [string, string]))
     return { query, total: hits.length, hits }
   }
 
@@ -913,7 +913,7 @@ export class EngagementStore {
       if (f.flag !== undefined) flags[f.flag] = (flags[f.flag] ?? 0) + 1
     }
     const tables: Record<string, number> = {}
-    for (const t of ['goals', 'intents', 'facts', 'assets', 'findings', 'evidence', 'credentials', 'artifacts', 'hints', 'samples', 'iocs', 'objectives', 'scope_entries'] as const) {
+    for (const t of ['goals', 'intents', 'facts', 'assets', 'findings', 'evidence', 'credentials', 'artifacts', 'hints', 'samples', 'iocs', 'objectives', 'scope_entries', 'operators'] as const) {
       tables[t] = [...this.domain.table(t).entries()].length
     }
     return { engagements: tables['goals']!, findings: findingsCount, fixed, severity, detection, flags, tables }
@@ -1143,6 +1143,11 @@ export class EngagementStore {
     }
   }
 
+  /** Public intent-existence check for tools that pre-validate before writing. */
+  hasIntent(sessionId: string, intentId: string): boolean {
+    return this.get<IntentRecord>('intents', sessionId, intentId) !== undefined
+  }
+
   private requireAsset(sessionId: string, assetId: string): void {
     const asset = this.get<AssetRecord>('assets', sessionId, assetId)
     if (asset === undefined) {
@@ -1265,7 +1270,8 @@ export class EngagementStore {
         && f.slaDueAt <= now
         && f.status !== 'fixed'
         && f.flag !== 'risk-accepted'
-        && f.flag !== 'false-positive')
+        && f.flag !== 'false-positive'
+        && f.flag !== 'out-of-scope')
       .map(([id, f]) => ({
         id,
         title: f.title,
@@ -1489,6 +1495,8 @@ export class EngagementStore {
           duplicateOf: f.duplicateOf ?? null,
           flag: f.flag ?? null,
           slaDueAt: f.slaDueAt ?? null,
+          jiraKey: f.jiraKey ?? null,
+          jiraStatus: f.jiraStatus ?? null,
         }))
     const credentials = this.maskedCredentials(sessionId).map((c) => ({
       id: c.id,
