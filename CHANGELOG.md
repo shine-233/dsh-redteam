@@ -1,6 +1,15 @@
-﻿# Changelog
+﻿所有显著变更记录在本文件。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循语义化。
 
-所有显著变更记录在本文件。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本遵循语义化。
+## [1.8.1] — 2026-08-26
+
+### 修复
+- **addOperator 无门禁**：任何会话此前都能直接注册 commander 角色；现 commander 门禁 + as 声明
+- jira_apply / import_scan 补 operator 门禁与 as 声明；proveObjective 门禁改用会话内 exec（原测试用无会话 exec 误打误撞）
+- Nessus 小写 `cve-…` 引用归一为大写，SARIF/标签一致
+
+### 其他
+- HTML 报告漏洞卡补 ⏰ SLA 逾期与 JIRA key·status 标记
+- README 本地安装示例改 `<version>` 占位
 
 ## [1.8.0] — 2026-08-26
 

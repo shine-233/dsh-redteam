@@ -632,11 +632,12 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
     execute: (_args, exec) => withStore(exec, async (store, sid) => await store.state(sid), {} as Record<string, never>),
   })
 
-  const addOperator = defineTool<{ handle: string; role: import('./types.js').OperatorRole }, { operatorId: string }>({
+  const addOperator = defineTool<{ as?: string; handle: string; role: import('./types.js').OperatorRole }, { operatorId: string }>({
     name: 'redteam_add_operator',
     description:
       "Register a collaboration participant and their role (upsert by handle): commander (full control), operator (writes findings/retests/submits), viewer (read-only). Named actors must be registered before passing role gates on collaboration writes via the `as` argument.",
     parameters: {
+      as: { type: 'string', description: 'Acting operator handle. Only commanders may register new participants.' },
       handle: { type: 'string', required: true, description: "Actor handle used as the `as` argument on writes." },
       role: { type: 'string', required: true, enum: [...OPERATOR_ROLES] },
     },
@@ -644,7 +645,10 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       schema: {},
       render: (a) => [{ type: 'text', text: `operator '${(a as { handle: string }).handle}' registered` }],
     },
-    execute: (args, exec) => withStore(exec, async (store, sid) => ({ operatorId: await store.addOperator(sid, args) }), args),
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      store.requireActor(sid, a.as, 'commander')
+      return { operatorId: await store.addOperator(sid, a) }
+    }, args),
   })
 
   const jiraExport = defineTool<Record<string, never>, { issues: unknown[] }>({
@@ -675,6 +679,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
   })
 
   const jiraApply = defineTool<{
+    as?: string
     updates: { findingId: string; jiraKey: string; jiraStatus?: string }[]
   }, { updated: string[]; missing: string[] }>({
     name: 'redteam_jira_apply',
@@ -699,10 +704,14 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
         text: `tracker sync: ${v.updated.length} stamped${v.missing.length > 0 ? `, ${v.missing.length} missing` : ''}`,
       }],
     },
-    execute: (args, exec) => withStore(exec, async (store, sid, a) => await store.applyTrackerUpdates(sid, a.updates), args),
+    execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      store.requireActor(sid, a.as, 'operator')
+      return await store.applyTrackerUpdates(sid, a.updates)
+    }, args),
   })
 
   const importScan = defineTool<{
+    as?: string
     format: 'nmap-xml' | 'nessus-xml'; xml: string; intentId: string
   }, { format: string; hosts: number; services: number; findings: number; evidenceId: string }>({
     name: 'redteam_import_scan',
@@ -721,6 +730,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
       }],
     },
     execute: (args, exec) => withStore(exec, async (store, sid, a) => {
+      store.requireActor(sid, a.as, 'operator')
       if (!store.hasIntent(sid, a.intentId)) {
         throw new StoreError('missing-ref', `intent '${a.intentId}' does not exist in this session`)
       }
@@ -1196,6 +1206,10 @@ async function htmlReport(
           ${f.flag !== undefined ? `<span class="tag">${f.flag}</span>` : ''}
           ${f.duplicateOf !== undefined ? `<span class="tag">dup of ${e(f.duplicateOf)}</span>` : ''}
           ${f.cvssScore !== undefined ? `<span class="tag">CVSS ${f.cvssScore}</span>` : ''}
+          ${f.slaDueAt !== undefined && f.status !== 'fixed' && f.flag !== 'risk-accepted' && f.flag !== 'false-positive' && f.slaDueAt < Date.now()
+            ? `<span class="tag" style="color:#ff5c5c;border-color:#ff5c5c66">⏰ SLA 逾期 ${Math.floor((Date.now() - f.slaDueAt) / 86_400_000)}d</span>`
+            : ''}
+          ${f.jiraKey !== undefined ? `<span class="tag">${e(f.jiraKey)}${f.jiraStatus !== undefined ? ` · ${e(f.jiraStatus)}` : ''}</span>` : ''}
         </header>
         <p class="desc">${e(f.description)}</p>
         ${f.flagNote !== undefined ? `<p class="meta">Triage: ${e(f.flagNote)}</p>` : ''}

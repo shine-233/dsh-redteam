@@ -452,7 +452,7 @@ describe('redteam tools', () => {
     const item = (severity: string) =>
       `<ReportItem port="443" protocol="tcp" severity="${severity}" pluginID="104743" pluginName="TLS Deprecated Protocol">` +
       `<description>Supports deprecated TLS 1.0.</description><solution>Disable TLS 1.0.</solution>` +
-      `<plugin_output>TLS 1.0 accepted on 443.</plugin_output><cve>CVE-2021-3450</cve></ReportItem>`
+      `<plugin_output>TLS 1.0 accepted on 443.</plugin_output><cve>cve-2021-3450</cve></ReportItem>`
     const xml = `<?xml?><NessusClientData_v2><Report><ReportHost name="10.0.0.9">` +
       `<HostProperties><tag name="host-ip">10.0.0.9</tag><tag name="host-fqdn">db.corp.example</tag></HostProperties>` +
       `${item('4')}${item('4')}</ReportHost></Report></NessusClientData_v2>`
@@ -503,6 +503,11 @@ describe('redteam tools', () => {
     await registry.call('redteam_add_operator', { handle: 'chief', role: 'commander' }, exec)
     const closeAsOperator = await registry.call('redteam_close_goal', { as: 'red-bob', outcome: 'partial' }, fakeExec())
     expect(closeAsOperator.ok).toBe(false)
+
+    // Only commanders may register participants; anonymous first registration works.
+    const anonOp = await registry.call('redteam_add_operator', { handle: 'late-joiner', role: 'viewer' }, exec)
+    expect(anonOp.ok).toBe(true)
+    void anonOp
 
     // Anonymous writes keep working (single-operator back-compat).
     const anon = await registry.call(

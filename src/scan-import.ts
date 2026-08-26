@@ -102,7 +102,7 @@ export function parseNessusXml(xml: string): NessusResult {
       const head = /<ReportItem\b([^>]*)>/.exec(ib)?.[1] ?? ''
       const pick = (child: string): string | null =>
         new RegExp(`<${child}>([\\s\\S]*?)</${child}>`).exec(ib)?.[1]?.trim() ?? null
-      const cves = [...ib.matchAll(/<cve>(CVE-\d{4}-\d{4,7})<\/cve>/gi)].map((m) => m[1]!)
+      const cves = [...ib.matchAll(/<cve>(CVE-\d{4}-\d{4,7})<\/cve>/gi)].map((m) => m[1]!.toUpperCase())
       items.push({
         host: address,
         pluginId: attr(head, 'pluginID') ?? '',
