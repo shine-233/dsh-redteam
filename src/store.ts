@@ -54,7 +54,7 @@ import {
   operatorSchema,
 } from './spec.js'
 import { scopeCheck } from './scope.js'
-import { ATTACK_TECHNIQUE_RE, CVE_ID_RE, CWE_ID_RE, MD5_RE, OWASP_CATEGORY_RE, SHA1_RE, SHA256_RE, scoreVector, validCweIds, validOwaspIds, validTechniqueIds } from './cvss.js'
+import { ATTACK_TECHNIQUE_RE, CVE_ID_RE, CWE_ID_RE, MD5_RE, OWASP_CATEGORY_RE, SHA1_RE, SHA256_RE, scoreAnyVector, validCweIds, validOwaspIds, validTechniqueIds } from './cvss.js'
 import { maskSecret } from './secrets.js'
 
 /** Machine-tagged store failure surfaced verbatim to the calling tool. */
@@ -509,7 +509,7 @@ export class EngagementStore {
     ) {
       throw new StoreError('invalid-record', `invalid detected outcome: '${input.detected}'`)
     }
-    const score = input.cvssVector !== undefined ? scoreVector(input.cvssVector) : null
+    const score = input.cvssVector !== undefined ? scoreAnyVector(input.cvssVector) : null
     if (input.cvssVector !== undefined && score === null) {
       throw new StoreError('invalid-record', `cvssVector is not a parseable CVSS vector (v3.1 or v4.0): '${input.cvssVector}'`)
     }
@@ -1081,7 +1081,7 @@ export class EngagementStore {
       if (item.owaspIds !== undefined && !validOwaspIds(item.owaspIds)) {
         throw new StoreError('invalid-record', `owaspIds must be OWASP Top 10 categories: ${item.owaspIds.join(', ')}`)
       }
-      if (item.cvssVector !== undefined && scoreVector(item.cvssVector) === null) {
+      if (item.cvssVector !== undefined && scoreAnyVector(item.cvssVector) === null) {
         throw new StoreError('invalid-record', `cvssVector is not a parseable CVSS vector (v3.1 or v4.0): '${item.cvssVector}'`)
       }
       findingN += 1
@@ -1405,13 +1405,18 @@ export class EngagementStore {
       return { nodes: [], assets: [], edges: [], counts: { ...EMPTY_COUNTS } }
     }
     const goal = this.currentGoal(sessionId)!
-    const nodes: RedteamViewNode[] = [{ id: goal.id, kind: 'goal', title: goal.objective, status: null, assetIds: [] }]
+    const nodes: RedteamViewNode[] = [{ id: goal.id, kind: 'goal', title: goal.objective, status: null, assetIds: [], phase: null, techniqueIds: [] }]
     const edges: GraphEdge[] = []
 
     const intents = this.rowsInWindow('intents', sessionId, win) as [string, IntentRecord][]
     const intentIds = new Set(intents.map(([id]) => id))
     for (const [id, intent] of intents) {
-      nodes.push({ id, kind: 'intent', title: intent.title, status: intent.status ?? 'active', assetIds: [...(intent.assetIds ?? [])] })
+      nodes.push({
+        id, kind: 'intent', title: intent.title, status: intent.status ?? 'active',
+        assetIds: [...(intent.assetIds ?? [])],
+        phase: intent.phase ?? null,
+        techniqueIds: [...(intent.techniqueIds ?? [])],
+      })
       edges.push({ from: intent.goalId, to: id, relation: 'spawns' })
     }
     // Fact→intent lineage and chain prerequisites (only when both ends exist).

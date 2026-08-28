@@ -712,10 +712,12 @@ describe('redteam tools', () => {
     expect(store.state('session-1').nextSteps.some((s) => s.includes('scope violation'))).toBe(true)
 
     await registry.call('redteam_add_ioc', { type: 'domain', value: 'external.other.org' }, exec)
-    // With only an out entry present (plus in), external.other.org matches no
-    // in-entry → unscoped.
+    // IOCs are observed attacker infrastructure: they sit outside the
+    // authorized scope by definition, so they never raise an unscoped
+    // issue — only an explicit out-entry hit (C2 inside a forbidden
+    // range) would be flagged.
     const after = store.state('session-1').scope.violations
-    expect(after.some((v) => v.recordKind === 'ioc' && v.reason === 'unscoped')).toBe(true)
+    expect(after.some((v) => v.recordKind === 'ioc')).toBe(false)
 
     const md = await registry.call('redteam_report', {}, exec)
     expect((md.value as { body: string }).body).toContain('范围合规 / Scope compliance')

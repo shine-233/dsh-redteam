@@ -17,6 +17,13 @@ export function scopeMatches(value: string, entryValue: string): boolean {
   return false
 }
 
+/** IPv4 literal, optionally with a :port suffix. Scanner imports are
+ * IP-shaped; an address cannot be judged against a hostname scope's in-list,
+ * so it never raises an unscoped violation (explicit out-entries still hit). */
+function isIpShaped(value: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/.test(value)
+}
+
 export interface ScopeCheckInput {
   assets: readonly { id: string; value: string }[]
   /** Findings are checked via their affected asset's value when registered. */
@@ -38,7 +45,7 @@ export function scopeCheck(
       issues.push({ recordId, recordKind, value, reason: 'out-of-scope', matched: hitOut.value })
       return
     }
-    if (hasIn && !entries.some((e) => e.kind === 'in' && scopeMatches(value, e.value))) {
+    if (hasIn && !isIpShaped(value) && !entries.some((e) => e.kind === 'in' && scopeMatches(value, e.value))) {
       issues.push({ recordId, recordKind, value, reason: 'unscoped', matched: '' })
     }
   }
@@ -46,6 +53,14 @@ export function scopeCheck(
   for (const f of input.findings) {
     if (f.assetValue !== null) judge(f.id, 'finding', f.assetValue)
   }
-  for (const i of input.iocs) judge(i.id, 'ioc', i.value)
+  // IOCs are observed attacker infrastructure: they sit outside the client's
+  // authorized scope by definition, so they never raise an unscoped issue —
+  // only an explicit out-entry hit (C2 inside a forbidden range) is a signal.
+  for (const i of input.iocs) {
+    const hitOut = out.find((e) => scopeMatches(i.value, e.value))
+    if (hitOut !== undefined) {
+      issues.push({ recordId: i.id, recordKind: 'ioc', value: i.value, reason: 'out-of-scope', matched: hitOut.value })
+    }
+  }
   return issues
 }

@@ -33,6 +33,16 @@ const edgeSchema = z.object({
   relation: z.enum(['spawns', 'yields', 'derived_from', 'proves', 'parent', 'depends_on']),
 })
 
+/** Canonical edge grouping used by the store view; fold replays must match it. */
+const EDGE_CATEGORY_ORDER: Record<EdgeRelation, number> = {
+  spawns: 0,
+  derived_from: 1,
+  depends_on: 2,
+  yields: 3,
+  proves: 4,
+  parent: 5,
+}
+
 export const redteamProjectionSchema = z.object({
   goal: z.union([
     z.object({
@@ -204,8 +214,11 @@ const MUTATING = new Set([
   'redteam_flag_finding',
   'redteam_update_credential',
   'redteam_close_goal',
-  'redteam_submit',
+   'redteam_submit',
 ])
+
+/** Tool names whose calls mutate fold-state (exported for simulation tests). */
+export const MUTATING_TOOLS: readonly string[] = [...MUTATING]
 
 function emptyState(): FoldState {
   return {
@@ -239,6 +252,15 @@ function nextId(state: FoldState, prefix: string): string {
     ...state.findings.map((f) => f.id),
     ...state.credentials.map((c) => c.id),
     ...state.edges.flatMap((e) => [e.from, e.to]),
+    // Every other projected collection carries real record ids too — a kind
+    // absent from this union re-mints colliding ids on batch replays.
+    ...state.facts.map((f) => f.id),
+    ...state.evidence.map((e2) => e2.id),
+    ...state.hints.map((h) => h.id),
+    ...state.samples.map((s) => s.id),
+    ...state.iocs.map((i) => i.id),
+    ...state.objectives.map((o) => o.id),
+    ...state.scope.map((s) => s.id),
   ])
   let n = 0
   while (existing.has(`${prefix}-${n + 1}`)) n += 1
@@ -265,7 +287,7 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       state.nodes = state.nodes.filter((n) => n.kind !== 'goal')
       state.edges = state.edges.filter((e) => e.relation === 'parent'
         || !state.nodes.every((n) => n.id !== e.from))
-      state.nodes.push({ id, kind: 'goal', title: String(args?.objective ?? ''), status: null, assetIds: [] })
+      state.nodes.push({ id, kind: 'goal', title: String(args?.objective ?? ''), status: null, assetIds: [], phase: null, techniqueIds: [] })
       state.goal = {
         objective: String(args?.objective ?? ''),
         authorization: String(args?.authorization ?? ''),
@@ -400,12 +422,15 @@ function applyMutation(state: FoldState, name: string, args: any): void {
     }
     case 'redteam_retest_finding': {
       const finding = state.findings.find((f) => f.id === args?.findingId)
-      if (finding !== undefined && args?.outcome === 'fixed') {
-        state.findings = state.findings.map((f) =>
-          f.id === finding.id ? { ...f, status: 'fixed' } : f)
-      } else if (finding !== undefined && args?.outcome === 'still-vulnerable') {
-        state.findings = state.findings.map((f) =>
-          f.id === finding.id ? { ...f, status: null } : f)
+      if (finding !== undefined) {
+        const detected = DETECTION_OUTCOMES.includes(args?.detected) ? args.detected : finding.detected
+        if (args?.outcome === 'fixed') {
+          state.findings = state.findings.map((f) =>
+            f.id === finding.id ? { ...f, status: 'fixed', detected } : f)
+        } else if (args?.outcome === 'still-vulnerable') {
+          state.findings = state.findings.map((f) =>
+            f.id === finding.id ? { ...f, status: null, detected } : f)
+        }
       }
       break
     }
@@ -457,6 +482,7 @@ function applyMutation(state: FoldState, name: string, args: any): void {
               const sid2 = nextId(state, 'asset')
               state.assets.push({ id: sid2, type: 'service', value: svcVal, parentId: hostId, tags: [svc.name, ...(svc.product !== null ? [svc.product] : [])] })
               assetValue.set(svcVal, sid2)
+              pushEdge(state.edges, hostId, sid2, 'parent')
             }
             if (host.services.length > 0 && state.nodes.some((n) => n.id === intent)) {
               const factId = nextId(state, 'fact')
@@ -489,7 +515,9 @@ function applyMutation(state: FoldState, name: string, args: any): void {
               title: item.pluginName.slice(0, 200),
               severity: item.severity,
               description: item.description.slice(0, 4000),
-              reproducibleSteps: [item.output || item.description || `scanner plugin ${item.pluginId} on ${item.port}/${item.protocol}`],
+              // Mirrors the tool path: raw plugin_output never becomes a
+              // reproduction step; it stays in the evidence record only.
+              reproducibleSteps: [item.description || `scanner plugin ${item.pluginId} on ${item.port}/${item.protocol}`],
               ...(item.solution ? { remediation: item.solution.slice(0, 2000) } : {}),
               ...(hostId !== null ? { affectedAssetId: hostId } : {}),
               ...(item.cves.length > 0 ? { cveIds: item.cves } : {}),
@@ -594,7 +622,15 @@ function applyMutation(state: FoldState, name: string, args: any): void {
       break
     }
     case 'redteam_submit': {
-      for (const item of args?.evidence ?? []) void item // count only
+      for (const item of args?.evidence ?? []) {
+        const id = nextId(state, 'ev')
+        state.evidence.push({
+          id,
+          kind: EVIDENCE_KINDS.includes(item?.kind) ? item.kind : 'note',
+          label: String(item?.label ?? ''),
+        })
+      }
+      state.evidence = evictOldest([...state.evidence], WINDOW_CAP)
       for (const item of args?.assets ?? []) applyMutation(state, 'redteam_add_asset', item)
       for (const item of args?.credentials ?? []) applyMutation(state, 'redteam_add_credential', item)
       for (const item of args?.artifacts ?? []) applyMutation(state, 'redteam_add_artifact', item)
@@ -741,7 +777,13 @@ export const redteamProjectionDefinition = {
       scopeIssues: state.scopeIssues,
       facts: state.facts,
       evidence: state.evidence,
-      edges: state.edges,
+      // The store view groups edges by relation (spawns → derived_from →
+      // depends_on → yields → proves → parent) and the fold replays them
+      // chronologically; a stable sort by category makes both agree while
+      // preserving creation order inside each group.
+      edges: [...state.edges].sort(
+        (a, b) => EDGE_CATEGORY_ORDER[a.relation] - EDGE_CATEGORY_ORDER[b.relation],
+      ),
       counts: state.counts,
     }),
   },

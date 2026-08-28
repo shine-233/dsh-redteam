@@ -716,7 +716,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
   }, { format: string; hosts: number; services: number; findings: number; evidenceId: string }>({
     name: 'redteam_import_scan',
     description:
-      'Ingest an nmap or Nessus XML export into the engagement: nmap open ports become host/service assets plus recon facts; Nessus ReportItems become findings (severity-mapped, CVE-linked, plugin_output as the reproduction step, dedupe on title+host). The raw XML is preserved as evidence. Paste it as `xml`.',
+      'Ingest an nmap or Nessus XML export into the engagement: nmap open ports become host/service assets plus recon facts; Nessus ReportItems become findings (severity-mapped, CVE-linked, description as the reproduction step — raw plugin_output stays only in the evidence record, dedupe on title+host). The raw XML is preserved as evidence. Paste it as `xml`.',
     parameters: {
       format: { type: 'string', required: true, enum: ['nmap-xml', 'nessus-xml'] },
       xml: { type: 'string', required: true, description: 'Raw scanner XML export.' },
@@ -772,6 +772,7 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
               detail: `${host.address}${host.hostname !== null ? ` (${host.hostname})` : ''}: open ${host.services.map((s) => `${s.port}/${s.name}`).join(', ')}`,
               kind: 'recon',
               target: host.address,
+              phase: 'recon',
               evidenceIds: [evidenceId],
             })
           }
@@ -785,7 +786,9 @@ export function redteamTools(deps: ToolDeps): ToolDefinition[] {
           const dupe = store.engagementRecords(sid).findings.some(([, f]) =>
             f.title === item.pluginName && f.affectedAssetId === hostId)
           if (dupe) continue
-          const steps = [item.output ?? item.description].filter((s) => s !== '').slice(0, 1)
+          // Raw plugin_output stays in the evidence record; reports must not
+          // echo unbounded scanner output as a reproduction step.
+          const steps = [item.description].filter((s) => s !== '').slice(0, 1)
           await store.addFinding(sid, a.intentId, {
             title: item.pluginName.slice(0, 200),
             severity: item.severity,
@@ -1536,6 +1539,9 @@ async function markdownReport(
       }
       if (f.techniqueIds !== undefined && f.techniqueIds.length > 0) {
         lines.push(`- MITRE ATT&CK: ${f.techniqueIds.map((t) => `\`${t}\``).join(', ')}`)
+      }
+      if (f.jiraKey !== undefined) {
+        lines.push(`- JIRA / Tracker: \`${f.jiraKey}\`${f.jiraStatus !== undefined ? `（${f.jiraStatus}）` : ''}`)
       }
       if (f.owaspIds !== undefined && f.owaspIds.length > 0) {
         lines.push(`- OWASP Top 10: ${f.owaspIds.join(', ')}`)
